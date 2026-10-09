@@ -233,6 +233,22 @@ body.edit .bar:not(.sm2){touch-action:none}
 .acct .btn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:inherit}
 .ut td{vertical-align:middle}.ut select{padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
 .rol-pendiente{color:var(--real);font-weight:600}
+body:not(.isadm) .adm{display:none!important}
+.live{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:inherit;border-radius:999px;padding:3px 10px 3px 6px;font-size:12px;cursor:pointer}
+.live .av{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;background:#4a7fe0;color:#fff;margin-left:-6px;border:2px solid var(--nav)}
+.live .av:first-child{margin-left:0}.live .av.ed{background:#f2b01e;color:#13212f}
+.libbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:14px}
+.libbox.liberada{border-color:var(--ok);background:color-mix(in srgb,var(--okbg) 55%,transparent)}
+.libbox.rechazada{border-color:var(--late);background:color-mix(in srgb,var(--latebg) 55%,transparent)}
+.libbox.pend{border-color:var(--prog);background:color-mix(in srgb,var(--progbg) 45%,transparent)}
+.libbox h4{font-size:15px;margin-bottom:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.libbox .firma{background:#fff;border:1px solid var(--line);border-radius:6px;max-width:260px;height:auto;display:block;margin-top:6px}
+#sigpad{width:100%;height:170px;background:#fff;border:2px dashed var(--line);border-radius:8px;touch-action:none;cursor:crosshair;display:block}
+.chk{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px}.chk label{display:flex;gap:4px;align-items:center;white-space:nowrap}
+.fg .chk label,.f .chk label{flex-direction:row;font-size:13px;color:var(--ink)}.fg .chk input,.f .chk input{width:auto}
+.ut td{padding:8px 10px}.ut details summary{cursor:pointer;font-size:12px;color:var(--prog)}
+.act-li{display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--line2);font-size:13px}.act-li:first-child{border-top:0}
+.tag-b{background:var(--progbg);color:var(--prog);border-radius:5px;padding:0 6px;font-size:11px;font-weight:600}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -243,9 +259,10 @@ body.edit .bar:not(.sm2){touch-action:none}
 <header class="top">
   <div class="brand"><b>Control de avance de obra</b><span id="brand-sub"></span></div>
   <select id="psel" aria-label="Proyecto"></select>
-  <button class="btn sm w" data-act="newproj" style="background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:inherit">+ Proyecto</button>
+  <button class="btn sm w adm" data-act="newproj" style="background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:inherit">+ Proyecto</button>
   <label>Corte al <input type="date" id="asof"></label>
   <button class="btn sm hide" id="btnToday" data-act="today" style="background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:inherit">Hoy</button>
+  <button class="live hide" id="live" data-fb="live" title="Quién está conectado"></button>
   <div class="sync" id="sync"><i></i><span>Listo</span></div>
   <div class="acct" id="acct"></div>
 </header>
@@ -562,9 +579,9 @@ const NC_STEPS=[['Etapa 1 · Trabajo no conforme','Incumple planos, especificaci
  ['Etapa 5 · Registro, archivo y escalamiento','Se archiva la nota de rechazo, el plan de corrección, el registro y fotos de preinspección y el acta de cierre.']];
 const TABS=[['resumen','Resumen'],['programa','Programa'],['insp','Inspecciones'],['curva','Curva S'],['cortes','Cortes'],['proyecto','Proyecto']];
 
-const S={mode:'local',canWrite:true,ready:false,sync:'idle',proy:[],prog:{},nch:{},dirty:{},insps:[],cortes:[],cur:null,tab:'resumen',
+const S={mode:'local',canWrite:true,ready:false,sync:'idle',proy:[],prog:{},nch:{},dirty:{},insps:[],cortes:[],libs:{},cur:null,tab:'resumen',
   asOf:todayN(),v:0,drawer:null,pending:false,me:{name:'',id:null},
-  ui:{zoom:'sem',nivel:99,q:'',fst:'',edit:false,casc:true,collapsed:{},curva:'acum',showRepr:true,gl:0,iq:'',idec:'',cdet:null}};
+  ui:{zoom:'sem',nivel:99,q:'',fst:'',edit:false,casc:true,collapsed:{},curva:'acum',showRepr:true,gl:0,iq:'',idec:'',ifirma:'',cdet:null}};
 let db=null,assets=null,userCap=null,dl=null,sampleFn=null;
 const LSK='avance-obra-v2';
 const touch=()=>{S.v++};
@@ -574,9 +591,16 @@ const curMeta=()=>S.proy.find(p=>p.id===S.cur)||null;
 function PR(){const p=curMeta();if(!p)return null;if(!S.prog[p.id])S.prog[p.id]=[];return{id:p.id,meta:p,tasks:S.prog[p.id],cfg:p.cfg||{},tpls:p.tpls||[]}}
 let _ins={k:'',v:[]};
 function projInsps(){const k=S.cur+'|'+S.v;if(_ins.k!==k)_ins={k,v:S.insps.filter(i=>i.pid===S.cur)};return _ins.v}
+/* ---- firma de liberación Bafar ---- */
+const libOf=i=>(S.libs||{})[i.id]||null;
+function firmaEst(i){const l=libOf(i);if(l)return l.estado;return i.rf?'pend':'ant'} // ant | pend | liberada | rechazada
+const FIRMA_TXT={ant:['Anterior','pend'],pend:['Por firmar','proc'],liberada:['Liberada ✔','lib'],rechazada:['No liberada ✗','nolib']};
+const firmaChip=i=>{const e=firmaEst(i),f=FIRMA_TXT[e];return `<span class="chip ${f[1]}" title="${e==='ant'?'Registrada antes de las firmas Bafar':'Firma Bafar'}">${f[0]}</span>`};
+let _inc={k:'',v:[]};
+function calcInsps(){const k=S.cur+'|'+S.v;if(_inc.k!==k)_inc={k,v:projInsps().filter(i=>{const e=firmaEst(i);return e==='ant'||e==='liberada'})};return _inc.v}
 let _cc={k:'',v:null},_cv={k:'',v:null};
-function CALC(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cc.k!==k)_cc={k,v:calcAll(PR(),projInsps(),S.asOf)};return _cc.v}
-function CURVE(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cv.k!==k)_cv={k,v:curveS(PR(),projInsps(),S.asOf)};return _cv.v}
+function CALC(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cc.k!==k)_cc={k,v:calcAll(PR(),calcInsps(),S.asOf)};return _cc.v}
+function CURVE(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cv.k!==k)_cv={k,v:curveS(PR(),calcInsps(),S.asOf)};return _cv.v}
 const taskIdx=id=>{const T=(PR()||{tasks:[]}).tasks;return T.findIndex(t=>t.i===id)};
 const projCortes=()=>S.cortes.filter(c=>c.pid===S.cur).sort((a,b)=>a.fecha.localeCompare(b.fecha));
 
@@ -598,7 +622,7 @@ async function dbSet(coll,id,body){if(!db)return;setSync('saving');try{await enq
 async function dbDel(coll,id){if(!db)return;try{await enqueue(coll+'/'+id,()=>db.collection(coll).doc(id).delete())}catch(e){fail(e)}}
 function saveMeta(p){p.upd=Date.now();const i=S.proy.findIndex(x=>x.id===p.id);if(i>=0)S.proy[i]=p;else S.proy.push(p);touch();lsSave();if(db)dbSet('proyectos',p.id,clone(p));else setSync('idle')}
 const progTimers={};
-function saveProg(pid){pid=pid||S.cur;S.dirty[pid]=true;touch();clearTimeout(progTimers[pid]);progTimers[pid]=setTimeout(()=>flushProg(pid),350);setSync('saving')}
+function saveProg(pid){pid=pid||S.cur;S.dirty[pid]=true;if(Date.now()-(S._lp||0)>600000){S._lp=Date.now();logAct('actualizó el programa de obra')}else if(typeof PRES!=='undefined')PRES.lastEdit=Date.now();touch();clearTimeout(progTimers[pid]);progTimers[pid]=setTimeout(()=>flushProg(pid),350);setSync('saving')}
 async function flushProg(pid){
   const tasks=S.prog[pid]||[];lsSave();
   if(!db){S.dirty[pid]=false;setSync('idle');return}
@@ -611,28 +635,14 @@ async function flushProg(pid){
     S.dirty[pid]=false;setSync('idle')
   }catch(e){S.dirty[pid]=false;fail(e)}}
 function saveInsp(i){const k=S.insps.findIndex(x=>x.id===i.id);if(k>=0)S.insps[k]=i;else S.insps.push(i);touch();lsSave();if(db)dbSet('inspecciones',i.id,clone(i));render()}
-function delInsp(id){S.insps=S.insps.filter(x=>x.id!==id);touch();lsSave();dbDel('inspecciones',id);render()}
-function saveCorte(c){const k=S.cortes.findIndex(x=>x.id===c.id);if(k>=0)S.cortes[k]=c;else S.cortes.push(c);touch();lsSave();if(db)dbSet('cortes',c.id,clone(c));render()}
+function delInsp(id){const x0=S.insps.find(x=>x.id===id);if(x0)logAct('eliminó la inspección '+(x0.folio||''));S.insps=S.insps.filter(x=>x.id!==id);touch();lsSave();dbDel('inspecciones',id);render()}
+function saveCorte(c){const k=S.cortes.findIndex(x=>x.id===c.id);if(k<0)logAct('hizo el corte semanal al '+fmtN(dn(c.fecha))+' (real '+pc1(c.real)+')');if(k>=0)S.cortes[k]=c;else S.cortes.push(c);touch();lsSave();if(db)dbSet('cortes',c.id,clone(c));render()}
 function delCorte(id){S.cortes=S.cortes.filter(x=>x.id!==id);touch();lsSave();dbDel('cortes',id);render()}
 async function delProject(pid){
   const ins=S.insps.filter(i=>i.pid===pid),cor=S.cortes.filter(c=>c.pid===pid),n=S.nch[pid]||1;
   S.proy=S.proy.filter(p=>p.id!==pid);delete S.prog[pid];S.insps=S.insps.filter(i=>i.pid!==pid);S.cortes=S.cortes.filter(c=>c.pid!==pid);
   if(S.cur===pid)S.cur=S.proy[0]?S.proy[0].id:null;touch();lsSave();render();
   if(db){try{await dbDel('proyectos',pid);for(let k=0;k<n;k++)await dbDel('programas',pid+'__'+k);for(const i of ins)await dbDel('inspecciones',i.id);for(const c of cor)await dbDel('cortes',c.id)}catch(e){fail(e)}}}
-
-/* ---- suscripciones ---- */
-function subscribeAll(){
-  const err=e=>toast('Se perdió la conexión con los datos ('+(e&&e.code||'error')+'). Recarga la página.','err');
-  db.collection('proyectos').onSnapshot(s=>{S.proy=s.docs.map(d=>clone(d.data())).filter(Boolean).sort((a,b)=>(a.creado||0)-(b.creado||0));
-    if(!S.cur||!S.proy.some(p=>p.id===S.cur))S.cur=S.proy[0]?S.proy[0].id:null;S.ready=true;touch();renderSoon()},err);
-  db.collection('programas').onSnapshot(s=>{
-    const by={};s.docs.forEach(d=>{const x=d.data();if(x)(by[x.pid]=by[x.pid]||[]).push(x)});
-    for(const pid in by){if(S.dirty[pid])continue;const arr=by[pid].sort((a,b)=>a.k-b.k);if(arr.length<arr[0].n)continue;
-      S.prog[pid]=[].concat(...arr.map(a=>clone(a.t)));S.nch[pid]=arr[0].n}
-    for(const pid of Object.keys(S.prog))if(!by[pid]&&!S.dirty[pid]&&!S.proy.some(p=>p.id===pid))delete S.prog[pid];
-    touch();renderSoon()},err);
-  db.collection('inspecciones').onSnapshot(s=>{S.insps=s.docs.map(d=>clone(d.data())).filter(Boolean);touch();renderSoon()},err);
-  db.collection('cortes').onSnapshot(s=>{S.cortes=s.docs.map(d=>clone(d.data())).filter(Boolean);touch();renderSoon()},err)}
 
 function renderSoon(){const a=document.activeElement;
   if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)&&a.closest&&a.closest('#main,#drawer')&&a.id!=='asof'){S.pending=true;return}render()}
@@ -642,7 +652,7 @@ document.addEventListener('focusout',()=>{if(S.pending){S.pending=false;setTimeo
 let toastT;function toast(msg,kind){let t=$('.toast');if(!t){t=document.createElement('div');document.body.appendChild(t)}t.className='toast '+(kind||'');t.textContent=msg;clearTimeout(toastT);toastT=setTimeout(()=>t.remove(),kind==='err'?5200:2600)}
 function setHTML(el,html){const a=document.activeElement;if(a&&a!==document.body&&el.contains(a)){try{a.blur()}catch(e){}}el.innerHTML=html}
 function openModal(html,cls){const m=$('#modal');setHTML(m,'<div class="mbox '+(cls||'')+'">'+html+'</div>');m.classList.add('open')}
-function closeModal(){const m=$('#modal');m.classList.remove('open');setHTML(m,'');MODAL={}}
+function closeModal(){const m=$('#modal');m.classList.remove('open');setHTML(m,'');MODAL={};SIG=null;if(typeof PRES!=='undefined'&&PRES.det){PRES.det='';presBeat()}}
 let MODAL={};
 function confirmBox(title,msg,okLabel,onOk,danger){MODAL={ok:onOk};openModal(`<div class="mh"><h3>${esc(title)}</h3></div><div class="mb">${msg}</div><div class="mf"><button class="btn" data-act="mclose">Cancelar</button><button class="btn ${danger?'dng solid':'pri'}" data-act="mok">${esc(okLabel)}</button></div>`)}
 
@@ -674,14 +684,15 @@ function renderChrome(){
   ps.disabled=!S.proy.length;
   $('#asof').value=sd(S.asOf);$('#btnToday').classList.toggle('hide',S.asOf===todayN());
   const p=curMeta();$('#brand-sub').textContent=p?(p.cliente||''):'';
-  $('#tabs').innerHTML=TABS.map(([k,l])=>`<button class="tab ${S.tab===k?'on':''}" data-act="tab" data-k="${k}" role="tab">${l}${k==='insp'&&p?`<small>${projInsps().length}</small>`:''}${k==='cortes'&&p?`<small>${projCortes().length}</small>`:''}</button>`).join('');
+  $('#tabs').innerHTML=TABS.filter(([k])=>k!=='proyecto'||AUTH.admin).map(([k,l])=>`<button class="tab ${S.tab===k?'on':''}" data-act="tab" data-k="${k}" role="tab">${l}${k==='insp'&&p?`<small>${projInsps().length}</small>`:''}${k==='cortes'&&p?`<small>${projCortes().length}</small>`:''}</button>`).join('');
   document.body.classList.toggle('edit',!!(S.ui.edit&&S.tab==='programa'));
-  document.body.classList.toggle('ro',!S.canWrite);
+  document.body.classList.toggle('ro',!S.canWrite);document.body.classList.toggle('isadm',!!AUTH.admin);
   setSync(S.sync);renderAcct()}
 function render(){
   renderChrome();const m=$('#main');
   if(!S.ready){m.innerHTML='<div class="empty"><h3>Cargando datos…</h3></div>';return}
   if(!curMeta()){m.innerHTML=viewHome();renderDrawer();return}
+  if(S.tab==='proyecto'&&!AUTH.admin)S.tab='resumen';
   const sc=$('#gscroll');const keep=sc?{x:sc.scrollLeft,y:sc.scrollTop}:null;
   try{
     const V={resumen:viewResumen,programa:viewPrograma,insp:viewInsp,curva:viewCurva,cortes:viewCortes,proyecto:viewProyecto};
@@ -689,8 +700,9 @@ function render(){
     if(S.tab==='programa')postGantt(keep);
     if(S.tab==='curva'||S.tab==='resumen')bindChart();
   }catch(e){console.error(e);m.innerHTML='<div class="card"><div class="empty"><h3>No pude dibujar esta vista</h3><p>'+esc(e.message)+'</p></div></div>'}
-  renderDrawer()}
-function viewHome(){return `<div class="card"><div class="empty"><h3>Aún no hay proyectos</h3><p>Crea un proyecto e importa su programa de obra (MS Project, Excel, PDF o Word) para empezar a medir el avance con tus checklists de liberación.</p><button class="btn pri w" data-act="newproj">Crear proyecto</button></div></div>`}
+  renderDrawer();if(typeof syncLive==='function')syncLive()}
+function viewHome(){return AUTH.admin?`<div class="card"><div class="empty"><h3>Aún no hay proyectos</h3><p>Crea un proyecto e importa su programa de obra (MS Project, Excel, PDF o Word) para empezar a medir el avance con tus checklists de liberación.</p><button class="btn pri w" data-act="newproj">Crear proyecto</button></div></div>`
+  :`<div class="card"><div class="empty"><h3>Sin proyectos asignados</h3><p>Todavía no tienes acceso a ningún proyecto. Un administrador de Bafar debe asignártelo.</p></div></div>`}
 function emptyProgram(){return `<div class="card"><div class="empty"><h3>Este proyecto aún no tiene programa</h3><p>Importa el programa de obra desde un archivo y la plataforma armará actividades, fechas y diagrama de Gantt. También puedes empezar actividad por actividad.</p><div class="wl w" style="justify-content:center"><button class="btn pri" data-act="import">Importar programa</button><button class="btn" data-act="addtask">Agregar primera actividad</button></div></div></div>`}
 const ctxOf=(P,C,i)=>{const p=C.par[i];return p>=0?P.tasks[p].n.trim():''};
 
@@ -704,12 +716,15 @@ function groupsAt(P,C,L){const T=P.tasks,out=[];T.forEach((t,i)=>{const r=C.R[i]
 function viewResumen(){
   const p=curMeta(),P=PR(),T=P.tasks;if(!T.length)return emptyProgram();
   const C=CALC(),t=C.tot,dv=t.real-t.prog,spi=t.prog>0.0005?t.real/t.prog:null;
-  const prev=calcAll(P,projInsps(),S.asOf-7).tot,wr=t.real-prev.real,wp=t.prog-prev.prog;
+  const prev=calcAll(P,calcInsps(),S.asOf-7).tot,wr=t.real-prev.real,wp=t.prog-prev.prog;
   const rg=projectRange(P),nIns=projInsps().length;
   let banner='';
   if(rg&&S.asOf>rg.b+7&&nIns===0)banner=`<div class="banner"><div style="flex:1"><b>Las fechas del programa ya pasaron.</b> Termina el ${fmtN(rg.b)} y el corte está en ${fmtN(S.asOf)}, por eso todo aparece atrasado. Recorre el programa a su fecha real de arranque o cambia el corte arriba.</div><button class="btn pri w" data-act="shift">Recorrer programa</button></div>`;
   const cor=projCortes(),last=cor[cor.length-1];
   if(!banner&&(!last||dn(last.fecha)<S.asOf-6)&&nIns>0)banner=`<div class="banner"><div style="flex:1"><b>Toca corte semanal.</b> ${last?'El último corte fue el '+fmtN(dn(last.fecha))+'.':'Aún no has hecho ningún corte.'}</div><button class="btn pri w" data-act="corte">Hacer corte</button></div>`;
+  const pf=projInsps().filter(i=>firmaEst(i)==='pend'),rj=projInsps().filter(i=>firmaEst(i)==='rechazada');
+  if(pf.length)banner=`<div class="banner"><div style="flex:1"><b>${pf.length} ${pf.length===1?'inspección espera':'inspecciones esperan'} la firma de Bafar.</b> ${AUTH.bafar?'Revísalas y libéralas o recházalas con tu firma.':'El avance de esas actividades cuenta hasta que Bafar las libere.'}</div><button class="btn pri" data-act="pendfirma" data-f="pend">Ver pendientes</button></div>`+banner;
+  if(rj.length&&!AUTH.bafar)banner+=`<div class="banner" style="border-color:var(--late)"><div style="flex:1"><b>${rj.length} ${rj.length===1?'inspección no fue liberada':'inspecciones no fueron liberadas'} por Bafar.</b> Revisa los comentarios, corrige y haz una reverificación.</div><button class="btn" data-act="pendfirma" data-f="rechazada">Ver</button></div>`;
   const L=pickLevel(P,C),G=groupsAt(P,C,L);
   const lv=[...new Set(T.map(x=>x.l))].filter(l=>l>=1&&l<=5);
   const gtab=G.map(i=>{const r=C.R[i],d=r.pc-r.pb;return `<tr class="click" data-act="goprog" data-id="${esc(T[i].i)}"><td>${esc(T[i].n.trim())}</td><td style="min-width:140px"><div class="pb"><i style="width:${Math.min(100,r.pc*100)}%"></i><u style="left:${Math.min(100,r.pb*100)}%"></u></div></td><td class="r num">${pc(r.pb)}</td><td class="r num b">${pc(r.pc)}</td><td class="r num nw">${dv$(d)}</td><td class="r num nw">${r.nT}/${r.nL}</td><td class="r num ${r.nA?'neg':''}">${r.nA||'–'}</td></tr>`}).join('');
@@ -734,8 +749,12 @@ function viewResumen(){
   <div class="grid g3" style="align-items:start">
    <div class="card"><h3>Atrasadas</h3><div class="tw"><table class="t"><tbody>${late.map(li).join('')||'<tr><td class="mut">Ninguna actividad atrasada.</td></tr>'}</tbody></table></div></div>
    <div class="card"><h3>Inician en los próximos 14 días</h3><div class="tw"><table class="t"><tbody>${soon.map(r=>li({...r,dias:null})).join('')||'<tr><td class="mut">Nada por iniciar en ese plazo.</td></tr>'}</tbody></table></div></div>
-   <div class="card"><div class="hd"><h3 style="padding:0;border:0">Inspecciones recientes</h3><span class="sp"></span><button class="btn sm w" data-act="newinsp">+ Nueva</button></div><div class="tw"><table class="t"><tbody>${ri.map(i=>{const k=taskIdx(i.tid);return `<tr class="click" data-act="openinsp" data-id="${esc(i.id)}"><td><div class="b">${esc(i.folio||'')}</div><div class="sm mut">${esc(k>=0?T[k].n.trim():'Actividad eliminada')}</div></td><td class="r sm num nw">${fmtN(dn(i.fecha))}</td><td class="r nw">${decOf(i)}</td></tr>`}).join('')||'<tr><td class="mut">Aún no hay inspecciones.</td></tr>'}</tbody></table></div></div>
-  </div>`}
+   <div class="card"><div class="hd"><h3 style="padding:0;border:0">Inspecciones recientes</h3><span class="sp"></span><button class="btn sm w" data-act="newinsp">+ Nueva</button></div><div class="tw"><table class="t"><tbody>${ri.map(i=>{const k=taskIdx(i.tid);return `<tr class="click" data-act="openinsp" data-id="${esc(i.id)}"><td><div class="b">${esc(i.folio||'')}</div><div class="sm mut">${esc(k>=0?T[k].n.trim():'Actividad eliminada')}</div></td><td class="r sm num nw">${fmtN(dn(i.fecha))}</td><td class="r nw">${firmaChip(i)}</td></tr>`}).join('')||'<tr><td class="mut">Aún no hay inspecciones.</td></tr>'}</tbody></table></div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Actividad reciente</h3><div class="bd" id="actlist">${actHTML()}</div></div>`}
+function actHTML(){const ev=((typeof ACT!=='undefined'&&ACT.ev)||[]).slice().reverse().slice(0,12);
+  return ev.length?ev.map(e=>`<div class="act-li"><span class="mut sm nw num" style="min-width:86px">${fmtWhen(e.ts)}</span><span><b>${esc(e.nombre||'')}</b>${e.bafar?' <span class="tag-b">Bafar</span>':''} ${esc(e.txt||'')}</span></div>`).join(''):'<div class="mut sm">Aquí verás lo que hace cada persona en este proyecto.</div>'}
+function fmtWhen(ts){const d=new Date(ts),m=Math.round((Date.now()-ts)/60000);if(m<1)return 'ahora';if(m<60)return 'hace '+m+' min';const t=pad2(d.getHours())+':'+pad2(d.getMinutes());return(todayN()===Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/DAY)?'hoy ':pad2(d.getDate())+' '+MESES[d.getMonth()]+' ')+t}
 function legendHTML(){return `<div class="legend" style="margin-top:8px"><span><i style="background:var(--steel)"></i>Programado (línea base)</span><span><i style="background:var(--steel);opacity:.45;height:2px"></i>Reprogramado</span><span><i style="background:var(--real)"></i>Real</span></div>`}
 function inspDec(i){ // decisión acumulada de la actividad hasta esta inspección
   const P=PR(),k=P?P.tasks.findIndex(t=>t.i===i.tid):-1;if(k<0)return decision(i.items);
@@ -834,7 +853,7 @@ function drawerHTML(P,i){
     ${items.length?`<div style="margin:10px 0">${items.map(it=>`<div class="cli"><span class="dot ${map[it.id]||''}">${map[it.id]==='SI'?'✓':map[it.id]==='NO'?'✕':map[it.id]==='NA'?'–':''}</span><span>${esc(it.t)}</span></div>`).join('')}</div>`
       :`<div class="f" style="margin-top:10px"><label>Avance manual (%)<input type="number" min="0" max="100" step="5" value="${t.pm||0}" data-tf="pm" ${ro}></label></div>`}
     <div class="wl w" style="margin-top:8px">${items.length?`<button class="btn pri" data-act="newinsp" data-id="${esc(t.i)}">Nueva inspección</button>`:''}<button class="btn" data-act="editcl" data-id="${esc(t.i)}">Personalizar conceptos</button></div>
-    ${ins.length?`<h4 style="margin:14px 0 6px">Inspecciones (${ins.length})</h4>${ins.map(x=>{const d=inspDec(x);return `<div class="wl" style="padding:5px 0;border-top:1px solid var(--line2);cursor:pointer" data-act="openinsp" data-id="${esc(x.id)}"><span class="b">${esc(x.folio||'')}</span><span class="mut sm">${fmtN(dn(x.fecha))}</span><span class="sp"></span><span class="chip ${d.cls}">${d.txt}</span></div>`}).join('')}`:''}`;
+    ${ins.length?`<h4 style="margin:14px 0 6px">Inspecciones (${ins.length})</h4>${ins.map(x=>{const d=inspDec(x);return `<div class="wl" style="padding:5px 0;border-top:1px solid var(--line2);cursor:pointer" data-act="openinsp" data-id="${esc(x.id)}"><span class="b">${esc(x.folio||'')}</span><span class="mut sm">${fmtN(dn(x.fecha))}</span><span class="sp"></span>${firmaChip(x)}</div>`}).join('')}`:''}`;
   return `<div class="dh"><div style="flex:1"><div class="sm mut">${esc(ctxOf(P,C,i))} · ID ${esc(t.i)}</div><h3>${esc(t.n.trim())}</h3><div style="margin-top:6px" class="wl">${chip(r.st)}${r.excl?'<span class="pill">Excluida del avance</span>':''}${sum?`<span class="pill">Grupo · ${C.kids[i].length} elementos</span>`:''}</div></div><button class="btn ghost" data-act="dclose" aria-label="Cerrar">✕</button></div>
   <div class="ds"><h4>Datos</h4><div class="fg"><label class="full">Nombre<input type="text" value="${esc(t.n.trim())}" data-tf="n" ${ro}></label></div></div>
   <div class="ds"><h4>Tiempos</h4>${sched}</div>
@@ -848,16 +867,17 @@ const sortInsp=a=>a.slice().sort((x,y)=>(y.fecha||'').localeCompare(x.fecha||'')
 function inspRows(){
   const P=PR(),T=P.tasks,q=strip(S.ui.iq||''),dec=S.ui.idec;
   const list=sortInsp(projInsps()).filter(i=>{const k=taskIdx(i.tid);const nm=k>=0?T[k].n:'';
-    if(q&&!strip([nm,i.folio,i.frente,i.inspecciono].join(' ')).includes(q))return false;if(dec&&inspDec(i).cls!==dec)return false;return true});
-  if(!list.length)return '<tr><td colspan="7" class="mut" style="padding:24px;text-align:center">'+(projInsps().length?'Ninguna inspección coincide con el filtro.':'Aún no hay inspecciones. Registra la primera con «Nueva inspección».')+'</td></tr>';
+    if(q&&!strip([nm,i.folio,i.frente,i.inspecciono].join(' ')).includes(q))return false;if(dec&&inspDec(i).cls!==dec)return false;if(S.ui.ifirma&&firmaEst(i)!==S.ui.ifirma)return false;return true});
+  if(!list.length)return '<tr><td colspan="8" class="mut" style="padding:24px;text-align:center">'+(projInsps().length?'Ninguna inspección coincide con el filtro.':'Aún no hay inspecciones. Registra la primera con «Nueva inspección».')+'</td></tr>';
   return list.map(i=>{const k=taskIdx(i.tid),d=inspDec(i),no=(i.items||[]).filter(x=>x.r==='NO').length;
-    return `<tr class="click" data-act="openinsp" data-id="${esc(i.id)}"><td class="b">${esc(i.folio||'')}</td><td class="num">${fmtN(dn(i.fecha))}</td><td>${esc(k>=0?T[k].n.trim():'Actividad eliminada')}<div class="sm mut">${esc(k>=0?ctxOf(P,CALC(),k):'')}</div></td><td>${esc(i.frente||'')}</td><td>${esc(i.inspecciono||'')}</td><td><span class="chip ${d.cls}">${d.txt}</span></td><td class="r num">${no?`<span class="neg">${no} NO</span>`:'–'}</td></tr>`}).join('')}
+    return `<tr class="click" data-act="openinsp" data-id="${esc(i.id)}"><td class="b">${esc(i.folio||'')}</td><td class="num">${fmtN(dn(i.fecha))}</td><td>${esc(k>=0?T[k].n.trim():'Actividad eliminada')}<div class="sm mut">${esc(k>=0?ctxOf(P,CALC(),k):'')}</div></td><td>${esc(i.frente||'')}</td><td>${esc(i.inspecciono||'')}</td><td><span class="chip ${d.cls}">${d.txt}</span></td><td>${firmaChip(i)}</td><td class="r num">${no?`<span class="neg">${no} NO</span>`:'–'}</td></tr>`}).join('')}
 function viewInsp(){
   if(!PR().tasks.length)return emptyProgram();
   return `<div class="bar-tools"><input type="text" id="iq" placeholder="Buscar folio, actividad, frente o inspector" value="${esc(S.ui.iq)}" style="width:300px" aria-label="Buscar inspección">
-   <select data-act="idec" aria-label="Decisión"><option value="">Todas las decisiones</option><option value="lib"${S.ui.idec==='lib'?' selected':''}>Se libera</option><option value="nolib"${S.ui.idec==='nolib'?' selected':''}>No se libera</option><option value="pend"${S.ui.idec==='pend'?' selected':''}>Pendiente</option></select><span class="sp"></span>
+   <select data-act="idec" aria-label="Decisión"><option value="">Todas las decisiones</option><option value="lib"${S.ui.idec==='lib'?' selected':''}>Se libera</option><option value="nolib"${S.ui.idec==='nolib'?' selected':''}>No se libera</option><option value="pend"${S.ui.idec==='pend'?' selected':''}>Pendiente</option></select>
+   <select data-act="ifirma" aria-label="Firma Bafar"><option value="">Toda firma Bafar</option>${['pend','liberada','rechazada','ant'].map(k=>`<option value="${k}"${S.ui.ifirma===k?' selected':''}>${FIRMA_TXT[k][0].replace(/ [✔✗]/,'')}</option>`).join('')}</select><span class="sp"></span>
    <button class="btn" data-act="ncguide">Proceso de no conformidad</button><button class="btn" data-act="exp-insp">Exportar</button><button class="btn pri w" data-act="newinsp">+ Nueva inspección</button></div>
-   <div class="card"><div class="tw"><table class="t"><thead><tr><th>Folio</th><th>Fecha</th><th>Actividad</th><th>Frente</th><th>Inspeccionó</th><th>Decisión</th><th class="r">Conceptos</th></tr></thead><tbody id="itab">${inspRows()}</tbody></table></div></div>`}
+   <div class="card"><div class="tw"><table class="t"><thead><tr><th>Folio</th><th>Fecha</th><th>Actividad</th><th>Frente</th><th>Inspeccionó</th><th>Checklist</th><th>Firma Bafar</th><th class="r">Conceptos</th></tr></thead><tbody id="itab">${inspRows()}</tbody></table></div></div>`}
 
 /* ---- formulario de inspección ---- */
 let F=null;
@@ -867,8 +887,9 @@ function pickTask(tid){const P=PR(),k=taskIdx(tid);F.tid=tid;if(k<0){F.items=[];
 function openInsp(tid,id){
   const P=PR();
   if(id){const x=S.insps.find(i=>i.id===id);if(!x)return;F=clone(x);F.nuevo=false;if(!F.nc)F.nc={e:0,n:''}}
-  else{F={id:uid('i'),pid:P.id,tid:'',fecha:sd(S.asOf),folio:'',frente:'',inspecciono:S.me.name||'',verifico:'',planos:'',obs:'',items:[],nc:{e:0,n:''},nuevo:true,creado:Date.now()};if(tid)pickTask(tid)}
-  renderInspModal()}
+  else{F={id:uid('i'),pid:P.id,tid:'',fecha:sd(S.asOf),folio:'',frente:'',inspecciono:S.me.name||'',verifico:'',planos:'',obs:'',items:[],nc:{e:0,n:''},nuevo:true,creado:Date.now(),rf:1,porUid:S.me.id||'',porEmail:(AUTH.user&&AUTH.user.email)||'',porNombre:S.me.name||''};if(tid)pickTask(tid)}
+  SIG=null;PRES.det='Inspección '+(F.folio||'nueva');presBeat();renderInspModal()}
+let SIG=null; // firma en curso: {estado, coment}
 function inspDecision(){
   const P=PR(),k=taskIdx(F.tid);if(k<0)return{cls:'pend',txt:'PENDIENTE'};
   const items=checklistOf(P,P.tasks[k]);const others=projInsps().filter(i=>i.tid===F.tid&&i.id!==F.id);
@@ -877,7 +898,7 @@ function inspDecision(){
   return cs.no>0?{cls:'nolib',txt:'NO SE LIBERA ✗'}:cs.lib?{cls:'lib',txt:'SE LIBERA ✔'}:{cls:'pend',txt:'PENDIENTE'}}
 function prevOf(itemId){const others=projInsps().filter(i=>i.tid===F.tid&&i.id!==F.id&&(i.fecha||'')<=F.fecha).sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')||(a.creado||0)-(b.creado||0));let r='';others.forEach(i=>{(i.items||[]).forEach(x=>{if(x.id===itemId&&x.r)r=x.r})});return r}
 function renderInspModal(){
-  const P=PR(),T=P.tasks,k=taskIdx(F.tid),ro=S.canWrite?'':'disabled',dec=inspDecision();
+  const P=PR(),T=P.tasks,k=taskIdx(F.tid),lib=F.nuevo?null:libOf(F),locked=!!lib&&!AUTH.bafar,ro=S.canWrite&&!locked?'':'disabled',dec=inspDecision();
   const leaves=T.map((t,i)=>({t,i})).filter(o=>CALC().R[o.i].leaf&&!o.t.ms&&checklistOf(P,o.t).length);
   const body=F.items.map((it,ix)=>{const pv=prevOf(it.id);
     return `<div class="irow"><div class="q"><span>${esc(it.t)}</span>${pv?`<small>Última: ${pv==='SI'?'SÍ':pv==='NA'?'N/A':'NO'}</small>`:''}</div>
@@ -894,15 +915,36 @@ function renderInspModal(){
    <label>Inspeccionó / usuario<input type="text" value="${esc(F.inspecciono||'')}" data-ff="inspecciono" ${ro}></label><label>Verificó / supervisor<input type="text" value="${esc(F.verifico||'')}" data-ff="verifico" ${ro}></label></div>
   ${F.items.length?`<div class="dec ${dec.cls}" style="margin-bottom:12px">${dec.txt}</div>${body}
    <div class="f"><label>Observaciones generales<textarea rows="2" data-ff="obs" ${ro}>${esc(F.obs||'')}</textarea></label></div>
-   ${hasNo?`<div class="banner" style="margin-top:12px"><div style="flex:1"><label class="wl"><input type="checkbox" data-ff="nce" ${F.nc&&F.nc.e?'checked':''} ${ro}> Se emitió nota de no conformidad al contratista</label></div><button type="button" class="btn sm" data-act="ncguide">Ver proceso</button></div>`:''}`
+   ${hasNo?`<div class="banner" style="margin-top:12px"><div style="flex:1"><label class="wl"><input type="checkbox" data-ff="nce" ${F.nc&&F.nc.e?'checked':''} ${ro}> Se emitió nota de no conformidad al contratista</label></div><button type="button" class="btn sm" data-act="ncguide">Ver proceso</button></div>`:''}
+   ${F.nuevo?`<div class="libbox pend"><h4>Liberación Bafar</h4><div class="sm">${AUTH.bafar?'Al guardar podrás liberarla o rechazarla con tu firma.':'Al guardar se avisa por correo a Bafar para que la revise y la firme. El avance cuenta hasta que la liberen.'}</div></div>`:libBoxHTML(lib,dec,locked)}`
   :`<div class="empty" style="padding:20px">Elige una actividad para cargar su checklist de liberación.</div>`}</div>
-  <div class="mf">${!F.nuevo?`<button class="btn dng w" data-act="delinsp" style="margin-right:auto">Eliminar</button><button class="btn w" data-act="reverif">Reverificar (nuevo folio)</button>`:''}<button class="btn" data-act="mclose">Cerrar</button>${F.items.length&&S.canWrite?'<button class="btn pri" data-act="savinsp">Guardar inspección</button>':''}</div>`,'wide')}
+  <div class="mf">${!F.nuevo&&!locked?`<button class="btn dng w" data-act="delinsp" style="margin-right:auto">Eliminar</button>`:''}${!F.nuevo?`<button class="btn w" data-act="reverif">Reverificar (nuevo folio)</button><button class="btn" data-act="inspdf">Descargar PDF</button>`:''}<button class="btn" data-act="mclose">Cerrar</button>${F.items.length&&S.canWrite&&!locked&&!SIG?'<button class="btn pri" data-act="savinsp">Guardar inspección</button>':''}</div>`,'wide');
+  if(SIG)sigInit()}
+function libBoxHTML(lib,dec,locked){
+  const est=lib?lib.estado:(F.rf?'pend':'ant'),cls=est==='ant'?'pend':est;
+  const head=`<h4>Liberación Bafar ${firmaChip(F)}</h4>`;
+  let body='';
+  if(lib)body+=`<div class="sm">${lib.estado==='liberada'?'Liberada':'No liberada'} por <b>${esc(lib.nombre||'')}</b> (${esc(lib.email||'')}) el ${esc(new Date(lib.fecha).toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'}))}.</div>${lib.coment?`<div style="margin-top:6px"><span class="mut sm">Comentario:</span> ${esc(lib.coment)}</div>`:''}<img class="firma" src="${lib.firma}" alt="Firma de ${esc(lib.nombre||'')}">${locked?'<div class="sm mut" style="margin-top:6px">La inspección ya fue firmada; para cambios haz una reverificación.</div>':''}`;
+  else if(est==='pend')body+=`<div class="sm">${AUTH.bafar?'Revisa los conceptos y decide si se libera. Tu firma queda registrada en el reporte PDF y se avisa por correo a los involucrados del proyecto.':'Pendiente: un responsable de Bafar debe revisarla y firmarla.'}</div>`;
+  else body+=`<div class="sm">Inspección registrada antes de las firmas Bafar. Cuenta para el avance; si quieres, fírmala ahora.</div>`;
+  if(AUTH.bafar&&!SIG)body+=`<div class="wl" style="margin-top:10px">${lib?`<span class="sm mut">¿Cambiar la decisión?</span>`:''}${!lib||lib.estado!=='liberada'?`<button class="btn pri" data-act="libstart" data-e="liberada">Liberar y firmar</button>`:''}${!lib||lib.estado!=='rechazada'?`<button class="btn dng" data-act="libstart" data-e="rechazada">No liberar y firmar</button>`:''}</div>`;
+  if(AUTH.bafar&&SIG)body+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)"><div class="dec ${SIG.estado==='liberada'?'lib':'nolib'}" style="position:static;margin-bottom:10px">${SIG.estado==='liberada'?'SE LIBERA ✔':'NO SE LIBERA ✗'}</div>
+    ${SIG.estado==='liberada'&&dec.cls!=='lib'?`<div class="banner" style="border-color:var(--real)">Ojo: el checklist dice «${esc(dec.txt)}». Puedes liberarla de todos modos; explícalo en el comentario.</div>`:''}
+    <div class="f"><label>Comentario ${SIG.estado==='rechazada'?'(qué debe corregir el contratista)':'(opcional)'}<textarea rows="2" id="sig-c">${esc(SIG.coment||'')}</textarea></label></div>
+    <div class="sm" style="margin:10px 0 4px">Firma de <b>${esc(AUTH.nombre||AUTH.user.email)}</b> · dibuja con el dedo o el mouse</div><canvas id="sigpad" aria-label="Recuadro para firmar"></canvas>
+    <div class="wl" style="margin-top:10px"><button class="btn sm" data-act="sigclear">Borrar firma</button><span class="sp"></span><button class="btn" data-act="libcancel">Cancelar</button><button class="btn ${SIG.estado==='liberada'?'pri':'dng solid'}" data-act="libsave">Firmar y ${SIG.estado==='liberada'?'liberar':'rechazar'}</button></div></div>`;
+  return `<div class="libbox ${cls}">${head}${body}</div>`}
 function saveInspForm(){
   if(!F.tid)return toast('Elige la actividad que inspeccionaste.','err');
   if(!F.items.some(x=>x.r))return toast('Marca al menos un concepto en SÍ, NO o N/A.','err');
-  const rec=clone(F);delete rec.nuevo;rec.upd=Date.now();if(!rec.folio)rec.folio=nextFolio(PR().tasks[taskIdx(F.tid)]);
-  saveInsp(rec);const d=inspDecision();closeModal();
-  toast(d.cls==='lib'?'Inspección guardada: la actividad queda liberada.':d.cls==='nolib'?'Inspección guardada con conceptos en NO: la actividad sigue sin liberar.':'Inspección guardada.')}
+  const nuevo=F.nuevo,rec=clone(F);delete rec.nuevo;rec.upd=Date.now();if(!rec.folio)rec.folio=nextFolio(PR().tasks[taskIdx(F.tid)]);
+  const d=inspDecision();saveInsp(rec);
+  logAct((nuevo?'registró la inspección ':'actualizó la inspección ')+rec.folio+' · '+taskName(rec.tid)+' ('+d.txt.replace(/ [✔✗]/,'').toLowerCase()+')');
+  if(nuevo&&!AUTH.bafar)mailNuevaInsp(rec,d);
+  if(AUTH.bafar&&!libOf(rec)){F=clone(rec);F.nuevo=false;renderInspModal();toast('Inspección guardada. Ahora libérala o recházala con tu firma.');return}
+  closeModal();
+  toast(AUTH.bafar?'Inspección guardada.':nuevo?'Inspección guardada y enviada a Bafar para su firma.':'Inspección guardada.')}
+const taskName=tid=>{const k=taskIdx(tid);return k>=0?PR().tasks[k].n.trim():'actividad'};
 async function photoUpload(ix,file){
   try{const blob=await shrink(file);const r=await assets.upload(blob);F.items[ix].f=r.id;renderInspModal()}catch(e){toast('No se pudo subir la foto ('+((e&&(e.code||e.message))||'error')+').','err')}}
 function shrink(file){return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const m=1280,sc=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?res(b):rej(new Error('imagen')),'image/jpeg',.8)};img.onerror=()=>rej(new Error('imagen no válida'));img.src=u})}
@@ -968,7 +1010,7 @@ function viewCurva(){
 
 /* ---- CORTES ---- */
 function makeCorte(fechaStr,nota){
-  const P=PR(),fn=dn(fechaStr),c=calcAll(P,projInsps(),fn),snap={};
+  const P=PR(),fn=dn(fechaStr),c=calcAll(P,calcInsps(),fn),snap={};
   P.tasks.forEach((t,i)=>{const r=c.R[i];if(r.leaf&&!r.ms&&r.w>0)snap[t.i]=Math.round(r.pc*100)});
   const rg=projectRange(P),m0=mondayN(rg?rg.a:fn);
   return{id:uid('k'),pid:P.id,fecha:fechaStr,sem:Math.floor((fn-m0)/7)+1,prog:c.tot.prog,repr:c.tot.repr,real:c.tot.real,term:c.tot.term,total:c.tot.total,atr:c.tot.atr,snap,nota:nota||'',creado:Date.now(),por:S.me.name||''}}
@@ -1008,6 +1050,9 @@ function viewProyecto(){
   <div class="card"><h3>Programa de obra</h3><div class="bd"><div class="mut sm" style="margin-bottom:10px">${P.tasks.length} renglones · ${P.tasks.filter((t,i)=>!(P.tasks[i+1]&&P.tasks[i+1].l>t.l)).length} actividades</div><div class="wl w"><button class="btn pri" data-act="import">Importar y reemplazar programa</button><button class="btn" data-act="shift">Recorrer fechas</button><button class="btn" data-act="baseline">Fijar línea base</button></div>
    <div class="wl w" style="margin-top:10px"><button class="btn" data-act="reassign" data-m="empty">Asignar checklist a las que no tienen</button><button class="btn" data-act="reassign" data-m="all">Reasignar todos por nombre</button></div></div></div>
   <div class="card"><h3>Exportar</h3><div class="bd wl"><button class="btn" data-act="exp-prog">Programa y avance</button><button class="btn" data-act="exp-insp">Inspecciones</button><button class="btn" data-act="exp-curva">Curva S y cortes</button></div></div>
+  <div class="card"><h3>Avisos por correo</h3><div class="bd"><div class="sm mut" style="margin-bottom:8px">Reciben las inspecciones por firmar, las liberaciones y los avisos de edición de este proyecto.</div>
+   <div class="sm b" style="margin-bottom:4px">Equipo con acceso (se arma desde «Accesos»)</div><div class="sm" style="margin-bottom:10px">${(p.equipo||[]).length?(p.equipo||[]).map(e=>`<span class="pill" style="margin:0 4px 4px 0">${esc(e)}</span>`).join(''):'<span class="mut">Nadie asignado todavía.</span>'}</div>
+   <div class="f"><label>Correos adicionales (uno por línea; los @${BAFAR_DOMAIN} reciben también los avisos de firma)<textarea rows="3" data-pf="correos" placeholder="residente@${BAFAR_DOMAIN}">${esc((p.correos||[]).join('\n'))}</textarea></label></div></div></div>
   </div>
   <div class="card" style="margin-top:14px"><h3>Plantillas de checklist</h3><div class="bd"><div class="wl" style="margin-bottom:12px"><select data-act="tplsel" style="max-width:420px">${p.tpls.map(t=>`<option value="${esc(t.id)}"${t.id===tsel?' selected':''}>${esc(t.id)} · ${esc(t.nombre)} (${used(t.id)} actividades)</option>`).join('')}</select><button class="btn sm w" data-act="tpladd">+ Plantilla</button><button class="btn sm dng w" data-act="tpldel" ${tp&&used(tp.id)?'disabled title="Está en uso"':''}>Eliminar</button></div>
    ${tp?`<div class="f" style="margin-bottom:10px"><label>Nombre de la plantilla<input type="text" value="${esc(tp.nombre)}" data-tn="1"></label></div>${tp.items.map((it,ix)=>`<div class="tpl-item"><input type="text" value="${esc(it.t)}" data-ti="${ix}"><button class="btn sm w" data-act="tidel" data-ix="${ix}" aria-label="Quitar concepto">✕</button></div>`).join('')}<button class="btn sm w" data-act="tiadd" style="margin-top:4px">+ Concepto</button>`:'<div class="mut">Sin plantillas.</div>'}
@@ -1019,8 +1064,8 @@ function sheetProg(){const P=PR(),C=CALC(),T=P.tasks;
   const head=['ID','Nivel','Actividad','Responsable','Inicio','Fin','Duración (días lab.)','Inicio línea base','Fin línea base','Predecesoras','% programado','% real','Estatus','Checklist','Inspecciones'];
   return [head].concat(T.map((t,i)=>{const r=C.R[i];return [t.i,t.l+1,t.n.trim(),t.r||'',t.s,t.f,nz(t.d),t.bs||'',t.bf||'',t.p||'',Math.round(r.pb*1000)/10,Math.round(r.pc*1000)/10,r.excl?'Excluida':r.st,t.tp||(t.cl?'Propio':''),r.leaf?projInsps().filter(x=>x.tid===t.i).length:'']}))}
 function sheetInsp(){const T=PR().tasks;
-  return [['Folio','Fecha','ID actividad','Actividad','Frente','Inspeccionó','Verificó','Planos','Decisión','Conceptos SÍ','Conceptos NO','Conceptos N/A','Detalle de conceptos en NO','NC emitida','Observaciones']].concat(sortInsp(projInsps()).map(i=>{const k=taskIdx(i.tid),it=i.items||[];
-    return [i.folio,i.fecha,i.tid,k>=0?T[k].n.trim():'',i.frente||'',i.inspecciono||'',i.verifico||'',i.planos||'',inspDec(i).txt.replace(/ [✔✗]/,''),it.filter(x=>x.r==='SI').length,it.filter(x=>x.r==='NO').length,it.filter(x=>x.r==='NA').length,it.filter(x=>x.r==='NO').map(x=>x.t+(x.o?' ('+x.o+')':'')).join('; '),i.nc&&i.nc.e?'Sí':'No',i.obs||'']}))}
+  return [['Folio','Fecha','ID actividad','Actividad','Frente','Inspeccionó','Verificó','Planos','Decisión','Conceptos SÍ','Conceptos NO','Conceptos N/A','Detalle de conceptos en NO','NC emitida','Observaciones','Firma Bafar','Firmó','Correo firmante','Fecha de firma','Comentario de Bafar']].concat(sortInsp(projInsps()).map(i=>{const k=taskIdx(i.tid),it=i.items||[];
+    return [i.folio,i.fecha,i.tid,k>=0?T[k].n.trim():'',i.frente||'',i.inspecciono||'',i.verifico||'',i.planos||'',inspDec(i).txt.replace(/ [✔✗]/,''),it.filter(x=>x.r==='SI').length,it.filter(x=>x.r==='NO').length,it.filter(x=>x.r==='NA').length,it.filter(x=>x.r==='NO').map(x=>x.t+(x.o?' ('+x.o+')':'')).join('; '),i.nc&&i.nc.e?'Sí':'No',i.obs||'',FIRMA_TXT[firmaEst(i)][0].replace(/ [✔✗]/,''),(libOf(i)||{}).nombre||'',(libOf(i)||{}).email||'',(libOf(i)||{}).fecha?new Date(libOf(i).fecha).toLocaleString('es-MX'):'',(libOf(i)||{}).coment||'']}))}
 function sheetCurva(){const cs=CURVE();const a=[['Semana','Fin de semana','Prog. acum. (%)','Reprog. acum. (%)','Real acum. (%)','Desviación (pp)']].concat(cs.rows.slice(1).map((r,i)=>[i+1,sd(r.d),Math.round(r.prog*1000)/10,Math.round(r.repr*1000)/10,r.real==null?'':Math.round(r.real*1000)/10,r.real==null?'':Math.round((r.real-r.prog)*1000)/10]));
   const c=[['Corte','Fecha','Prog. acum. (%)','Real acum. (%)','Desviación (pp)','Terminadas','Total','Atrasadas','Nota']].concat(projCortes().map((x,j)=>[j+1,x.fecha,Math.round(x.prog*1000)/10,Math.round(x.real*1000)/10,Math.round((x.real-x.prog)*1000)/10,x.term,x.total,x.atr,x.nota||'']));return{Curva:a,Cortes:c}}
 
@@ -1208,6 +1253,7 @@ function reassign(mode){
   saveProg();render();toast('Checklist asignado a '+n+' actividades.')}
 function setMetaField(k,v){const p=clone(curMeta());
   if(k==='inh'){p.cfg=Object.assign({},p.cfg,{inh:v.split(/\s+/).map(x=>x.trim()).filter(x=>dn(x)!=null)})}
+  else if(k==='correos'){p.correos=[...new Set(v.split(/[\s,;]+/).map(x=>x.trim().toLowerCase()).filter(x=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)))]}
   else if(k==='nombre'){if(!v.trim())return;p.nombre=v.trim()}else p[k]=v;
   saveMeta(p);render()}
 
@@ -1250,6 +1296,12 @@ document.addEventListener('click',async ev=>{
    case'setr':{const ix=+el.dataset.ix,r=el.dataset.r;F.items[ix].r=F.items[ix].r===r?'':r;const sc=$('#modal').scrollTop;renderInspModal();$('#modal').scrollTop=sc;break}
    case'rmphoto':{F.items[+el.dataset.ix].f='';const sc=$('#modal').scrollTop;renderInspModal();$('#modal').scrollTop=sc;break}
    case'savinsp':saveInspForm();break;
+   case'libstart':SIG={estado:el.dataset.e,coment:''};{const sc=$('#modal').scrollTop;renderInspModal();const b=$('#sigpad');if(b)b.scrollIntoView({block:'center'});else $('#modal').scrollTop=sc}break;
+   case'libcancel':SIG=null;renderInspModal();break;
+   case'sigclear':sigClear();break;
+   case'libsave':await saveLib();break;
+   case'inspdf':await downloadInspPDF(F.id);break;
+   case'pendfirma':S.tab='insp';S.ui.ifirma=el.dataset.f||'pend';S.ui.idec='';S.ui.iq='';render();break;
    case'delinsp':confirmBox('Eliminar inspección',`Se eliminará el folio ${esc(F.folio)}. El avance de la actividad se recalcula con las demás inspecciones.`,'Eliminar',()=>{delInsp(F.id);closeModal()},true);break;
    case'reverif':{const base=F;const t=PR().tasks[taskIdx(base.tid)];F=Object.assign(clone(base),{id:uid('i'),nuevo:true,creado:Date.now(),fecha:sd(S.asOf),obs:'',nc:{e:0,n:''}});F.items=F.items.map(x=>({id:x.id,t:x.t,r:'',o:'',f:''}));F.folio=nextFolio(t);renderInspModal();break}
    case'corte':MODAL={};openCorte();break;
@@ -1303,6 +1355,7 @@ document.addEventListener('change',ev=>{
    case'gcasc':S.ui.casc=el.checked;prefSave();break;
    case'gl':S.ui.gl=+el.value;render();break;
    case'idec':S.ui.idec=el.value;render();break;
+   case'ifirma':S.ui.ifirma=el.value;render();break;
    case'crepr':S.ui.showRepr=el.checked;render();break;
    case'tplsel':S.ui.tplSel=el.value;render();break;}});
 let qT;
@@ -1311,6 +1364,7 @@ document.addEventListener('input',ev=>{
   if(el.id==='gq'){S.ui.q=el.value;clearTimeout(qT);qT=setTimeout(refreshGantt,180);return}
   if(el.id==='iq'){S.ui.iq=el.value;const t=$('#itab');if(t)t.innerHTML=inspRows();return}
   if(d.fo!=null&&F){F.items[+d.fo].o=el.value;return}
+  if(el.id==='sig-c'&&SIG){SIG.coment=el.value;return}
   if(d.cle!=null&&CLE){CLE.items[+d.cle].t=el.value;return}
   if(el.id==='dp-name'){const p=curMeta();$('#dp-ok').disabled=el.value.trim()!==p.nombre.trim();return}
   if(d.sh==='date'){const rg=MODAL.sh;$('#sh-w').value=Math.round((dn(el.value)-rg)/7);shiftPrev();return}
@@ -1342,7 +1396,7 @@ document.addEventListener('pointerup',ev=>{
 document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){if($('#modal').classList.contains('open'))closeModal();else if(S.drawer){S.drawer=null;render()}}});
 
 /* ================= ARRANQUE · Firebase (versión independiente) ================= */
-/* 1) Pega aquí la configuración de tu proyecto de Firebase
+/* 1) Configuración del proyecto de Firebase
       (Consola de Firebase → Configuración del proyecto → Tus apps → Configuración del SDK → "Config"). */
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyCUx954at40yK-KKpTUdoOdfLnJuTmINLw",
@@ -1352,60 +1406,347 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "502509874543",
   appId: "1:502509874543:web:8514c54f93799ac5938c9a"
 };
-/* 2) Correos con permiso de administrador desde el primer día.
-      Deben coincidir con la lista ADMINS de firestore.rules. */
-const ADMIN_EMAILS = ["fernandocastrohdez@gmail.com", "sebasmanriquez07@gmail.com"];
+/* 2) Dominio de Bafar: todo correo verificado de este dominio es administrador fijo
+      y es el único que puede liberar y firmar inspecciones. Debe coincidir con firestore.rules. */
+const BAFAR_DOMAIN = "bafar.com.mx";
 
-const ROLES = {admin:'Administrador', editor:'Editor', lector:'Solo lectura', pendiente:'Pendiente'};
-const AUTH = {user:null, rol:null, nombre:'', admin:false, unsub:[]};
+const ROLES = {admin:'Administrador Bafar', editor:'Editor', lector:'Solo lectura', pendiente:'Sin acceso'};
+const AUTH = {user:null, rol:null, nombre:'', admin:false, bafar:false, ok:false, proys:[], key:'', unsub:[]};
 let FS = null;
+const isBafarEmail = e => String(e||'').trim().toLowerCase().endsWith('@'+BAFAR_DOMAIN);
+const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(e||'').trim());
+const uniqEmails = a => [...new Set((a||[]).map(x=>String(x||'').trim().toLowerCase()).filter(validEmail))];
+const SVT = () => firebase.firestore.FieldValue.serverTimestamp();
 
-/* ---- adaptador: la app habla el mismo idioma que la base de Claude ---- */
+/* ---- adaptador: la app guarda cada registro como JSON + el proyecto al que pertenece ---- */
+const parseDoc = x => {if(!x)return null;try{return typeof x.j==='string'?JSON.parse(x.j):x}catch(e){return null}};
 function fsAdapter(fs){
-  const wrap=snap=>({docs:snap.docs.map(d=>({id:d.id,data:()=>{const x=d.data();if(!x)return null;try{return typeof x.j==='string'?JSON.parse(x.j):x}catch(e){return null}}}))});
-  return {collection:c=>({
-    doc:id=>({
-      set:b=>fs.collection(c).doc(id).set({j:JSON.stringify(b),u:firebase.firestore.FieldValue.serverTimestamp(),by:AUTH.user?AUTH.user.uid:null}),
-      delete:()=>fs.collection(c).doc(id).delete()}),
-    onSnapshot:(ok,err)=>{const u=fs.collection(c).onSnapshot(s=>ok(wrap(s)),err);AUTH.unsub.push(u);return u}})}}
+  return {collection:c=>({doc:id=>({
+    set:b=>fs.collection(c).doc(id).set({j:JSON.stringify(b),pid:c==='proyectos'?id:(b.pid||null),u:SVT(),by:AUTH.user?AUTH.user.uid:null}),
+    delete:()=>fs.collection(c).doc(id).delete()})})}}
 
 /* ---- fotos de inspección: se guardan comprimidas en la colección "fotos" ---- */
 const FOTO={};
 const PIXEL='data:image/gif;base64,R0lGODlhAQABAAAAACw=';
 function blobToURL(b){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(b)})}
+function fotoGet(id){
+  if(FOTO[id])return Promise.resolve(FOTO[id]);
+  return FS.collection('fotos').doc(id).get().then(d=>{const x=d.data();if(x&&x.d){FOTO[id]=x.d;return x.d}return null}).catch(()=>null)}
 function fotoSrc(id){
   if(FOTO[id])return FOTO[id];
   if(FS&&FOTO[id]===undefined){FOTO[id]=null;
-    FS.collection('fotos').doc(id).get().then(d=>{const x=d.data();if(x&&x.d){FOTO[id]=x.d;document.querySelectorAll('img[data-foto="'+CSS.escape(id)+'"]').forEach(im=>{im.src=x.d})}}).catch(()=>{delete FOTO[id]})}
+    fotoGet(id).then(d=>{if(d)document.querySelectorAll('img[data-foto="'+CSS.escape(id)+'"]').forEach(im=>{im.src=d});else delete FOTO[id]})}
   return PIXEL}
-async function shrinkSmall(file){ // fotos más ligeras para caber holgadas en un documento
-  return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const m=1000,sc=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?res(b):rej(new Error('imagen')),'image/jpeg',.7)};img.onerror=()=>rej(new Error('imagen no válida'));img.src=u})}
+async function shrinkSmall(file){
+  return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const m=1000,sc=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?res(b):rej(new Error('imagen')),'image/jpeg',.72)};img.onerror=()=>rej(new Error('imagen no válida'));img.src=u})}
 const fbAssets={async upload(blob){
   if(blob.size>350000&&blob.type&&blob.type.startsWith('image/'))blob=await shrinkSmall(blob);
   const d=await blobToURL(blob);if(d.length>900000)throw{code:'muy grande',message:'La foto es demasiado pesada'};
   const id='f'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-  await FS.collection('fotos').doc(id).set({d,by:AUTH.user.uid,u:firebase.firestore.FieldValue.serverTimestamp()});
+  await FS.collection('fotos').doc(id).set({d,pid:S.cur,by:AUTH.user.uid,u:SVT()});
   FOTO[id]=d;return{id}}};
 
 /* ---- descargas: el navegador guarda el archivo directamente ---- */
 const fbDownloads={async save({filename,data}){
-  const type=/\.xlsx$/i.test(filename)?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'text/csv;charset=utf-8';
+  const type=/\.xlsx$/i.test(filename)?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':/\.pdf$/i.test(filename)?'application/pdf':'text/csv;charset=utf-8';
   const b=data instanceof Blob?data:new Blob([data],{type});const a=document.createElement('a');
   a.href=URL.createObjectURL(b);a.download=filename;document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}};
 
-/* ---- pantalla de acceso ---- */
+/* ================= DATOS: cada quien recibe solo sus proyectos ================= */
+const byCreado=(a,b)=>(a.creado||0)-(b.creado||0);
+function fixCur(){if(!S.cur||!S.proy.some(p=>p.id===S.cur))S.cur=S.proy[0]?S.proy[0].id:null}
+function applyProgDocs(list){
+  const by={};list.forEach(x=>{if(x&&x.pid)(by[x.pid]=by[x.pid]||[]).push(x)});
+  for(const pid in by){if(S.dirty[pid])continue;const arr=by[pid].sort((a,b)=>a.k-b.k);if(arr.length<arr[0].n)continue;
+    S.prog[pid]=[].concat(...arr.map(a=>clone(a.t)));S.nch[pid]=arr[0].n}
+  for(const pid of Object.keys(S.prog))if(!by[pid]&&!S.dirty[pid]&&!S.proy.some(p=>p.id===pid))delete S.prog[pid]}
+const MIG=new Set();
+function migDoc(c,d,x){ // registros viejos sin "pid" visible: el administrador los marca para que los contratistas los vean
+  if(!AUTH.admin||!x)return;const raw=d.data();if(!raw||raw.pid!=null||MIG.has(c+'/'+d.id))return;
+  const pid=c==='proyectos'?d.id:x.pid;if(!pid)return;MIG.add(c+'/'+d.id);d.ref.update({pid}).catch(()=>{})}
+let MIGF=false;
+async function migFotos(){
+  if(MIGF||!AUTH.admin)return;MIGF=true;
+  try{const m=await FS.collection('config').doc('migracion').get();if(m.exists&&m.data().fotos)return;
+    for(const i of S.insps)for(const it of(i.items||[]))if(it.f&&i.pid)await FS.collection('fotos').doc(it.f).update({pid:i.pid}).catch(()=>{});
+    await FS.collection('config').doc('migracion').set({fotos:true},{merge:true})}catch(e){}}
+function subscribeAll(){
+  const err=e=>{if(e&&e.code==='permission-denied'&&!AUTH.admin)return;toast('Se perdió la conexión con los datos ('+(e&&e.code||'error')+'). Recarga la página.','err')};
+  const on=(q,fn)=>AUTH.unsub.push(q.onSnapshot(fn,err));
+  const rows=(c,s)=>s.docs.map(d=>{const x=parseDoc(d.data());migDoc(c,d,x);return x}).filter(Boolean);
+  const libs=s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});return m};
+  if(AUTH.admin){
+    on(FS.collection('proyectos'),s=>{S.proy=rows('proyectos',s).sort(byCreado);fixCur();S.ready=true;touch();renderSoon();deepLink()});
+    on(FS.collection('programas'),s=>{applyProgDocs(rows('programas',s));touch();renderSoon()});
+    on(FS.collection('inspecciones'),s=>{S.insps=rows('inspecciones',s);touch();renderSoon();deepLink();migFotos()});
+    on(FS.collection('cortes'),s=>{S.cortes=rows('cortes',s);touch();renderSoon()});
+    on(FS.collection('liberaciones'),s=>{S.libs=libs(s);touch();renderSoon()});
+    return}
+  const parts={proy:{},prog:{},insp:{},cort:{},lib:{}},seen=new Set();
+  const flush=()=>{S.proy=Object.values(parts.proy).filter(Boolean).sort(byCreado);
+    applyProgDocs([].concat(...Object.values(parts.prog)));S.insps=[].concat(...Object.values(parts.insp));
+    S.cortes=[].concat(...Object.values(parts.cort));S.libs=Object.assign({},...Object.values(parts.lib));
+    fixCur();if(seen.size>=AUTH.proys.length)S.ready=true;touch();renderSoon();deepLink()};
+  if(!AUTH.proys.length){S.ready=true;render();return}
+  AUTH.proys.forEach(pid=>{
+    on(FS.collection('proyectos').doc(pid),d=>{parts.proy[pid]=d.exists?parseDoc(d.data()):null;seen.add(pid);flush()});
+    const w=c=>FS.collection(c).where('pid','==',pid);
+    on(w('programas'),s=>{parts.prog[pid]=rows('programas',s);flush()});
+    on(w('inspecciones'),s=>{parts.insp[pid]=rows('inspecciones',s);flush()});
+    on(w('cortes'),s=>{parts.cort[pid]=rows('cortes',s);flush()});
+    on(w('liberaciones'),s=>{parts.lib[pid]=libs(s);flush()})})}
+
+/* ---- abrir directo una inspección desde el link del correo ---- */
+let DEEP=(()=>{try{const q=new URLSearchParams(location.search);return q.get('p')?{p:q.get('p'),i:q.get('i')}:null}catch(e){return null}})();
+function deepLink(){
+  if(!DEEP||!S.ready||!S.proy.some(p=>p.id===DEEP.p))return;
+  if(DEEP.i&&!S.insps.some(i=>i.id===DEEP.i))return;
+  const d=DEEP;DEEP=null;try{history.replaceState(null,'',location.pathname)}catch(e){}
+  S.cur=d.p;S.drawer=null;if(d.i){S.tab='insp';touch();render();openInsp(null,d.i)}else{touch();render()}}
+const linkTo=(pid,iid)=>location.origin+location.pathname+'?p='+encodeURIComponent(pid)+(iid?'&i='+encodeURIComponent(iid):'');
+
+/* ================= FIRMA DE LIBERACIÓN (solo @bafar.com.mx) ================= */
+function sigInit(){
+  const c=$('#sigpad');if(!c||!SIG)return;const r=c.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  c.width=Math.max(10,Math.round(r.width*dpr));c.height=Math.max(10,Math.round(r.height*dpr));
+  const x=c.getContext('2d');x.scale(dpr,dpr);x.lineWidth=2.4;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#0b2a5b';x.fillStyle='#0b2a5b';
+  SIG.drawn=false;let down=false,lx=0,ly=0;
+  const pt=e=>{const b=c.getBoundingClientRect();return{x:e.clientX-b.left,y:e.clientY-b.top}};
+  c.onpointerdown=e=>{down=true;try{c.setPointerCapture(e.pointerId)}catch(_){}const p=pt(e);lx=p.x;ly=p.y;x.beginPath();x.arc(lx,ly,1.2,0,7);x.fill();SIG.drawn=true;e.preventDefault()};
+  c.onpointermove=e=>{if(!down)return;const p=pt(e);x.beginPath();x.moveTo(lx,ly);x.lineTo(p.x,p.y);x.stroke();lx=p.x;ly=p.y};
+  c.onpointerup=c.onpointercancel=()=>{down=false}}
+function sigClear(){const c=$('#sigpad');if(!c)return;c.getContext('2d').clearRect(0,0,c.width,c.height);if(SIG)SIG.drawn=false}
+function sigData(){ // recorta la firma a su contorno y la reduce para guardarla ligera
+  const c=$('#sigpad'),x=c.getContext('2d'),{width:w,height:h}=c,px=x.getImageData(0,0,w,h).data;
+  let x0=w,y0=h,x1=0,y1=0;for(let y=0;y<h;y++)for(let i=0;i<w;i++){if(px[(y*w+i)*4+3]>10){if(i<x0)x0=i;if(i>x1)x1=i;if(y<y0)y0=y;if(y>y1)y1=y}}
+  if(x1<x0){x0=0;y0=0;x1=w-1;y1=h-1}
+  const pad=8;x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(w-1,x1+pad);y1=Math.min(h-1,y1+pad);
+  const sw=x1-x0+1,sh=y1-y0+1,sc=Math.min(1,500/sw,180/sh),o=document.createElement('canvas');
+  o.width=Math.max(1,Math.round(sw*sc));o.height=Math.max(1,Math.round(sh*sc));o.getContext('2d').drawImage(c,x0,y0,sw,sh,0,0,o.width,o.height);
+  return o.toDataURL('image/png')}
+async function saveLib(){
+  if(!AUTH.bafar)return toast('Solo un correo @'+BAFAR_DOMAIN+' verificado puede firmar.','err');
+  if(!SIG||!SIG.drawn)return toast('Dibuja tu firma en el recuadro.','err');
+  SIG.coment=($('#sig-c')||{}).value||SIG.coment||'';
+  if(SIG.estado==='rechazada'&&!SIG.coment.trim())return toast('Escribe qué debe corregir el contratista.','err');
+  const i=S.insps.find(x=>x.id===F.id);if(!i)return toast('Primero guarda la inspección.','err');
+  const rec={pid:i.pid,tid:i.tid,iid:i.id,folio:i.folio||'',estado:SIG.estado,nombre:AUTH.nombre||AUTH.user.email,email:String(AUTH.user.email||'').toLowerCase(),uid:AUTH.user.uid,
+    fecha:new Date().toISOString(),ts:Date.now(),firma:sigData(),coment:SIG.coment.trim(),checklist:inspDec(i).txt.replace(/ [✔✗]/,'')};
+  setSync('saving');
+  try{await FS.collection('liberaciones').doc(i.id).set(rec)}catch(e){setSync('err');return toast('No se pudo guardar la firma ('+(e.code||e.message)+').','err')}
+  setSync('idle');S.libs=Object.assign({},S.libs,{[i.id]:rec});touch();SIG=null;
+  logAct((rec.estado==='liberada'?'liberó y firmó':'NO liberó y firmó')+' la inspección '+rec.folio+' · '+taskName(rec.tid));
+  render();F=clone(i);F.nuevo=false;renderInspModal();
+  toast(rec.estado==='liberada'?'Inspección liberada y firmada. Se avisará por correo.':'Inspección rechazada y firmada. Se avisará por correo.');
+  mailLib(i,rec)}
+
+/* ================= PDF (generador propio, sin librerías externas) ================= */
+const PDFW=(()=>{
+  const WIN={0x20AC:128,0x201A:130,0x192:131,0x201E:132,0x2026:133,0x2020:134,0x2021:135,0x2C6:136,0x2030:137,0x160:138,0x2039:139,0x152:140,0x17D:142,0x2018:145,0x2019:146,0x201C:147,0x201D:148,0x2022:149,0x2013:150,0x2014:151,0x2DC:152,0x2122:153,0x161:154,0x203A:155,0x153:156,0x17E:158,0x178:159};
+  const enc=s=>{let o='';for(const ch of String(s)){const c=ch.codePointAt(0);let b=c<128||(c>=160&&c<256)?c:WIN[c];if(b==null)b=c===0x2714?0x2D:63;const k=String.fromCharCode(b);o+=k==='\\'||k==='('||k===')'?'\\'+k:k}return o};
+  const col=c=>{if(Array.isArray(c))return c;const h=c.replace('#','');return[0,2,4].map(i=>parseInt(h.slice(i,i+2),16)/255)};
+  const f3=n=>(Math.round(n*100)/100).toString();
+  let mctx=null;const meas=(s,size,bold)=>{try{if(!mctx)mctx=document.createElement('canvas').getContext('2d');mctx.font=(bold?'bold ':'')+'100px Helvetica, Arial, sans-serif';return mctx.measureText(String(s)).width/100*size}catch(e){return String(s).length*size*.5}};
+  class Doc{
+    constructor(){this.W=595.28;this.H=841.89;this.pages=[];this.imgs=[];this.addPage()}
+    addPage(){this.c=[];this.pages.push(this.c);return this}
+    rect(x,y,w,h,fill,stroke,lw){const p=this.c;if(fill)p.push(col(fill).map(f3).join(' ')+' rg');if(stroke)p.push(col(stroke).map(f3).join(' ')+' RG '+f3(lw||.6)+' w');p.push(`${f3(x)} ${f3(this.H-y-h)} ${f3(w)} ${f3(h)} re ${fill&&stroke?'B':fill?'f':'S'}`)}
+    line(x1,y1,x2,y2,color,lw){this.c.push(col(color||'#d3dce4').map(f3).join(' ')+' RG '+f3(lw||.6)+' w '+`${f3(x1)} ${f3(this.H-y1)} m ${f3(x2)} ${f3(this.H-y2)} l S`)}
+    width(s,size,bold){return meas(s,size,bold)}
+    text(s,x,y,size,o){o=o||{};let tx=x;const w=meas(s,size,o.bold);if(o.align==='right')tx=x-w;else if(o.align==='center')tx=x-w/2;
+      this.c.push(`BT /${o.bold?'F2':'F1'} ${f3(size)} Tf ${col(o.color||'#13212f').map(f3).join(' ')} rg ${f3(tx)} ${f3(this.H-y)} Td (${enc(s)}) Tj ET`)}
+    wrap(s,maxW,size,bold){const out=[];String(s==null?'':s).split(/\n/).forEach(par=>{let line='';par.split(/\s+/).filter(Boolean).forEach(wd=>{const t=line?line+' '+wd:wd;if(meas(t,size,bold)<=maxW||!line){if(!line&&meas(wd,size,bold)>maxW){let cut='';for(const ch of wd){if(meas(cut+ch,size,bold)>maxW){out.push(cut);cut=''}cut+=ch}line=cut}else line=t}else{out.push(line);line=wd}});out.push(line)});return out.length?out:['']}
+    image(id,x,y,w,h){this.c.push(`q ${f3(w)} 0 0 ${f3(h)} ${f3(x)} ${f3(this.H-y-h)} cm /Im${id} Do Q`)}
+    addJPEG(b64,w,h){const bin=atob(b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);this.imgs.push({u,w,h});return this.imgs.length-1}
+    output(){
+      const chunks=[],offs=[];let len=0;const te=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&255;return u};
+      const push=u=>{chunks.push(u);len+=u.length};const obj=(n,body)=>{offs[n]=len;push(te(n+' 0 obj\n'));(Array.isArray(body)?body:[body]).forEach(b=>push(typeof b==='string'?te(b):b));push(te('\nendobj\n'))};
+      push(te('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'));
+      const nP=this.pages.length,imgBase=5,pageBase=imgBase+this.imgs.length;
+      const kids=this.pages.map((_,i)=>(pageBase+i*2)+' 0 R').join(' ');
+      obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,`<< /Type /Pages /Kids [${kids}] /Count ${nP} >>`);
+      obj(3,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+      obj(4,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+      this.imgs.forEach((im,k)=>obj(imgBase+k,[`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.u.length} >>\nstream\n`,im.u,'\nendstream']));
+      const xo=this.imgs.map((_,k)=>`/Im${k} ${imgBase+k} 0 R`).join(' ');
+      this.pages.forEach((p,i)=>{const n=pageBase+i*2,body=te(p.join('\n'));
+        obj(n,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f3(this.W)} ${f3(this.H)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << ${xo} >> >> /Contents ${n+1} 0 R >>`);
+        obj(n+1,[`<< /Length ${body.length} >>\nstream\n`,body,'\nendstream'])});
+      const total=pageBase+nP*2,xref=len;let x='xref\n0 '+total+'\n0000000000 65535 f \n';for(let n=1;n<total;n++)x+=String(offs[n]).padStart(10,'0')+' 00000 n \n';
+      push(te(x+`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`));
+      const out=new Uint8Array(len);let o=0;chunks.forEach(c=>{out.set(c,o);o+=c.length});return out}}
+  // cualquier imagen (PNG/JPG, con o sin transparencia) -> JPEG sobre un fondo
+  const toJPEG=(src,bg,maxW)=>new Promise(res=>{if(!src)return res(null);const im=new Image();im.onload=()=>{const sc=Math.min(1,(maxW||1400)/im.width),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*sc));c.height=Math.max(1,Math.round(im.height*sc));const x=c.getContext('2d');x.fillStyle=bg||'#ffffff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);res({b64:c.toDataURL('image/jpeg',.9).split(',')[1],w:c.width,h:c.height})};im.onerror=()=>res(null);im.src=src});
+  return {Doc,toJPEG}})();
+
+async function inspPDF(i){
+  const P=PR(),p=curMeta()||{},k=taskIdx(i.tid),t=k>=0?P.tasks[k]:null,C=CALC(),lib=libOf(i),est=firmaEst(i),dec=inspDec(i);
+  const D=new PDFW.Doc(),W=D.W,M=40,CW=W-2*M,NAVY='#0b2a5b';let y=0;
+  const logo=await PDFW.toJPEG(LOGO_BAFAR,NAVY,400);const logoId=logo?D.addJPEG(logo.b64,logo.w,logo.h):null;
+  const header=(first)=>{D.rect(0,0,W,first?84:46,NAVY);
+    if(logoId!=null){const h=first?62:32,w=h*logo.w/logo.h;D.image(logoId,M,first?11:7,w,h)}
+    const tx=M+(first?66:40);
+    D.text('REPORTE DE INSPECCIÓN Y LIBERACIÓN',tx,first?34:20,first?14:10,{bold:true,color:'#ffffff'});
+    D.text((p.nombre||'')+(first?'':'  ·  '+(i.folio||'')),tx,first?52:34,first?10:8.5,{color:'#c9d6ea'});
+    if(first){D.text(i.folio||'',W-M,34,12,{bold:true,color:'#ffffff',align:'right'});D.text('Fecha: '+fmtN(dn(i.fecha)),W-M,52,9.5,{color:'#c9d6ea',align:'right'})}
+    y=first?100:62};
+  const need=h=>{if(y+h>D.H-50){D.addPage();header(false)}};
+  header(true);
+  // estado
+  const EST={liberada:['LIBERADA POR BAFAR','#1b8553'],rechazada:['NO LIBERADA POR BAFAR','#cc332e'],pend:['PENDIENTE DE FIRMA BAFAR','#2563c9'],ant:['REGISTRADA ANTES DE LAS FIRMAS BAFAR','#74869a']}[est];
+  D.rect(M,y,CW,30,EST[1]);D.text(EST[0],M+12,y+20,13,{bold:true,color:'#ffffff'});D.text('Checklist: '+dec.txt.replace(/ [✔✗]/,''),W-M-12,y+19.5,9.5,{color:'#ffffff',align:'right'});y+=44;
+  // datos
+  const fields=[['Proyecto',p.nombre],['Cliente',p.cliente],['Contratista',p.contratista],['Ubicación',p.ubicacion],['Actividad',t?(t.i+' · '+t.n.trim()):'Actividad eliminada',1],['Grupo',k>=0?ctxOf(P,C,k):'',1],['Fecha de inspección',fmtN(dn(i.fecha))],['Frente o zona',i.frente],['Planos o referencia',i.planos],['Inspeccionó',i.inspecciono],['Verificó / supervisor',i.verifico],['Registró en la plataforma',i.porNombre?(i.porNombre+(i.porEmail?' ('+i.porEmail+')':'')):(i.porEmail||'')]].filter(f=>f[1]);
+  const colW=(CW-16)/2;let cx=0,rowH=0;
+  fields.forEach(f=>{const full=!!f[2],w=full?CW:colW;if(full&&cx){y+=rowH;cx=0;rowH=0}
+    const lines=D.wrap(f[1],w,10);const h=12+lines.length*12.5+6;if(!cx)need(h);
+    D.text(f[0].toUpperCase(),M+cx,y+8,7.5,{bold:true,color:'#74869a'});lines.forEach((l,j)=>D.text(l,M+cx,y+20+j*12.5,10));
+    rowH=Math.max(rowH,h);if(full){y+=rowH;rowH=0;cx=0}else if(cx){y+=rowH;rowH=0;cx=0}else cx=colW+16});
+  if(cx)y+=rowH;y+=6;
+  // conceptos
+  const items=i.items||[],nS=items.filter(x=>x.r==='SI').length,nN=items.filter(x=>x.r==='NO').length,nA=items.filter(x=>x.r==='NA').length;
+  need(60);D.text('Conceptos del checklist',M,y+10,12,{bold:true,color:NAVY});D.text(`${nS} SÍ · ${nN} NO · ${nA} N/A · ${items.length-nS-nN-nA} sin marcar`,W-M,y+10,9,{color:'#46576a',align:'right'});y+=18;
+  const cw=[24,262,58,CW-24-262-58],thead=()=>{D.rect(M,y,CW,20,NAVY);let x=M;['#','Concepto','Resultado','Observaciones'].forEach((h,j)=>{D.text(h,x+5,y+13.5,8.5,{bold:true,color:'#ffffff'});x+=cw[j]});y+=20};
+  thead();
+  items.forEach((it,ix)=>{const a=D.wrap(it.t,cw[1]-10,9),b=D.wrap(it.o||'',cw[3]-10,8.5),h=Math.max(a.length*11,b.length*10.5)+9;
+    if(y+h>D.H-50){D.addPage();header(false);thead()}
+    if(ix%2)D.rect(M,y,CW,h,'#f3f6f9');
+    const R={SI:['SÍ','#1b8553'],NO:['NO','#cc332e'],NA:['N/A','#74869a']}[it.r]||['—','#74869a'];
+    let x=M;D.text(String(ix+1),x+5,y+12,9,{color:'#74869a'});x+=cw[0];
+    a.forEach((l,j)=>D.text(l,x+5,y+12+j*11,9));x+=cw[1];
+    D.text(R[0],x+5,y+12,9,{bold:true,color:R[1]});x+=cw[2];
+    b.forEach((l,j)=>D.text(l,x+5,y+12+j*10.5,8.5,{color:'#46576a'}));
+    y+=h;D.line(M,y,M+CW,y,'#e5ebf0',.5)});
+  y+=12;
+  if(i.obs){const l=D.wrap(i.obs,CW-20,9.5);need(l.length*12+30);D.text('Observaciones generales',M,y+10,11,{bold:true,color:NAVY});y+=18;l.forEach(s=>{D.text(s,M,y+9,9.5);y+=12});y+=8}
+  if(i.nc&&i.nc.e){need(24);D.text('Se emitió nota de no conformidad al contratista.',M,y+10,9.5,{bold:true,color:'#cc332e'});y+=22}
+  // liberación
+  const fimg=lib&&lib.firma?await PDFW.toJPEG(lib.firma,'#ffffff',600):null;
+  const fh=fimg?Math.min(70,fimg.h*Math.min(200/fimg.w,70/fimg.h)):0,fw=fimg?fh*fimg.w/fimg.h:0;
+  const cl=lib&&lib.coment?D.wrap(lib.coment,CW-24,9.5):[];
+  const boxH=lib?(64+cl.length*12+(fimg?fh+24:0)):46;need(boxH+20);
+  D.text('Liberación Bafar',M,y+10,12,{bold:true,color:NAVY});y+=18;
+  D.rect(M,y,CW,boxH,'#ffffff',EST[1],1.2);
+  if(lib){D.text(lib.estado==='liberada'?'SE LIBERA':'NO SE LIBERA',M+12,y+20,13,{bold:true,color:EST[1]});
+    D.text('Firmó: '+(lib.nombre||'')+'  ·  '+(lib.email||''),M+12,y+37,9.5);
+    D.text('Fecha y hora: '+new Date(lib.fecha).toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'}),M+12,y+51,9.5,{color:'#46576a'});
+    let yy=y+51;cl.forEach((s,j)=>{D.text((j?'':'Comentario: ')+s,M+12,yy+13+j*12,9.5);});yy+=cl.length*12;
+    if(fimg){const id=D.addJPEG(fimg.b64,fimg.w,fimg.h);D.image(id,M+12,yy+10,fw,fh);D.line(M+12,yy+12+fh,M+12+Math.max(fw,160),yy+12+fh,'#46576a',.7);D.text('Firma',M+12,yy+22+fh,7.5,{color:'#74869a'})}}
+  else D.text(est==='pend'?'Pendiente: un responsable de Bafar debe revisar y firmar esta inspección.':'Inspección registrada antes de las firmas Bafar.',M+12,y+27,10,{color:'#46576a'});
+  y+=boxH+16;
+  // fotos
+  const fotos=[];for(const [ix,it] of items.entries())if(it.f){const d=await fotoGet(it.f);const j=d?await PDFW.toJPEG(d,'#ffffff',900):null;if(j)fotos.push({j,cap:(ix+1)+'. '+it.t})}
+  if(fotos.length){need(40);D.text('Fotos',M,y+10,12,{bold:true,color:NAVY});y+=18;const gw=(CW-20)/3,gh=gw*0.75;let c=0;
+    fotos.forEach(f=>{if(c===0&&y+gh+28>D.H-50){D.addPage();header(false)}const x=M+c*(gw+10),sc=Math.min(gw/f.j.w,gh/f.j.h),w=f.j.w*sc,h=f.j.h*sc,id=D.addJPEG(f.j.b64,f.j.w,f.j.h);
+      D.rect(x,y,gw,gh,'#f3f6f9');D.image(id,x+(gw-w)/2,y+(gh-h)/2,w,h);D.wrap(f.cap,gw,7.5).slice(0,2).forEach((l,j)=>D.text(l,x,y+gh+10+j*9,7.5,{color:'#46576a'}));
+      c++;if(c===3){c=0;y+=gh+30}});if(c)y+=gh+30}
+  // pie de página
+  const gen='Generado el '+new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
+  D.pages.forEach((pg,n)=>{D.c=pg;D.line(M,D.H-34,W-M,D.H-34,'#d3dce4',.6);D.text('Grupo Bafar Construcción · Control de avance de obra · '+gen,M,D.H-22,7.5,{color:'#74869a'});D.text('Página '+(n+1)+' de '+D.pages.length,W-M,D.H-22,7.5,{color:'#74869a',align:'right'})});
+  return D.output()}
+async function downloadInspPDF(id){
+  const i=S.insps.find(x=>x.id===id);if(!i)return toast('Guarda la inspección antes de descargar el PDF.','err');
+  try{toast('Preparando PDF…');const bytes=await inspPDF(i);await fbDownloads.save({filename:'Inspección '+(i.folio||i.id)+'.pdf',data:new Blob([bytes],{type:'application/pdf'})});toast('PDF listo')}
+  catch(e){console.error(e);toast('No se pudo generar el PDF ('+(e.message||e)+').','err')}}
+
+/* ================= CORREOS (EmailJS) ================= */
+let EMAILCFG=null;
+async function loadEmailCfg(){try{const d=await FS.collection('config').doc('emailjs').get();EMAILCFG=d.exists?d.data():null}catch(e){EMAILCFG=null}}
+async function sendMail(to,asunto,html){
+  to=uniqEmails(to);if(!to.length)return false;const c=EMAILCFG;
+  if(!c||!c.publicKey||!c.serviceId||!c.templateId){if(AUTH.admin)toast('Los avisos por correo aún no están configurados (Accesos → Correos).','err');return false}
+  try{const r=await fetch('https://api.emailjs.com/api/v1.0/email/send',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({service_id:c.serviceId,template_id:c.templateId,user_id:c.publicKey,template_params:{para:to.join(','),asunto,mensaje:html}})});
+    if(!r.ok)throw new Error(await r.text());return true}
+  catch(e){console.warn('correo',e);toast('No se pudo enviar el aviso por correo ('+String(e.message||e).slice(0,90)+').','err');return false}}
+function mailHTML(titulo,filas,link,btn,color){
+  const tr=filas.filter(f=>f&&f[1]).map(f=>`<tr><td style="padding:4px 12px 4px 0;color:#74869a;font-size:12px;vertical-align:top;white-space:nowrap">${esc(f[0])}</td><td style="padding:4px 0;font-size:14px;color:#13212f">${f[2]?f[1]:esc(f[1])}</td></tr>`).join('');
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;border:1px solid #d3dce4;border-radius:10px;overflow:hidden">
+<div style="background:#0b2a5b;color:#ffffff;padding:16px 22px"><div style="font-size:12px;opacity:.8">Grupo Bafar Construcción · Control de avance de obra</div><div style="font-size:20px;font-weight:bold;margin-top:4px">${esc(titulo)}</div></div>
+${color?`<div style="height:6px;background:${color}"></div>`:''}<div style="padding:18px 22px"><table style="border-collapse:collapse">${tr}</table>
+${link?`<p style="margin:22px 0 4px"><a href="${link}" style="background:#0b2a5b;color:#ffffff;padding:11px 20px;border-radius:7px;text-decoration:none;font-weight:bold;display:inline-block">${esc(btn||'Abrir en la plataforma')}</a></p>`:''}</div>
+<div style="padding:10px 22px;background:#eef2f5;color:#74869a;font-size:11px">Aviso automático de la plataforma de control de obra. No respondas a este correo.</div></div>`}
+const projOf=pid=>S.proy.find(x=>x.id===pid)||null;
+const projEmails=p=>uniqEmails([...(p&&p.equipo||[]),...(p&&p.correos||[])]);
+const bafarEmails=p=>projEmails(p).filter(isBafarEmail);
+function mailNuevaInsp(rec,d){
+  const p=projOf(rec.pid),to=bafarEmails(p);if(!to.length)return;
+  const no=(rec.items||[]).filter(x=>x.r==='NO');
+  sendMail(to,`Inspección por firmar: ${rec.folio} · ${p.nombre}`,mailHTML('Inspección pendiente de firma',[
+    ['Proyecto',p.nombre],['Actividad',taskName(rec.tid)],['Folio',rec.folio],['Fecha',fmtN(dn(rec.fecha))],['Frente',rec.frente],
+    ['Registró',(rec.porNombre||'')+' ('+(rec.porEmail||'')+')'],['Checklist',d.txt.replace(/ [✔✗]/,'')],
+    no.length?['Conceptos en NO',no.map(x=>'• '+esc(x.t)+(x.o?' — '+esc(x.o):'')).join('<br>'),1]:null],
+    linkTo(rec.pid,rec.id),'Revisar y firmar','#2563c9'))}
+function mailLib(i,lib){
+  const p=projOf(i.pid),to=uniqEmails([...projEmails(p),i.porEmail,lib.email]);if(!to.length)return;
+  const ok=lib.estado==='liberada';
+  sendMail(to,`${ok?'Liberada':'NO liberada'}: ${i.folio} · ${p.nombre}`,mailHTML(ok?'Inspección liberada por Bafar':'Inspección NO liberada por Bafar',[
+    ['Proyecto',p.nombre],['Actividad',taskName(i.tid)],['Folio',i.folio],['Fecha de inspección',fmtN(dn(i.fecha))],
+    ['Decisión',`<b style="color:${ok?'#1b8553':'#cc332e'}">${ok?'SE LIBERA':'NO SE LIBERA'}</b>`,1],['Firmó',lib.nombre+' ('+lib.email+')'],
+    ['Fecha de firma',new Date(lib.fecha).toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'})],['Comentario',lib.coment],['Registró',i.porNombre?(i.porNombre+' ('+(i.porEmail||'')+')'):'']],
+    linkTo(i.pid,i.id),'Ver y descargar el reporte PDF',ok?'#1b8553':'#cc332e'))}
+const NOTIF={};
+async function notifyEditing(pid,txt){
+  if(AUTH.bafar||!pid)return;const key=AUTH.user.uid+'_'+pid+'_'+sd(todayN());if(NOTIF[key])return;NOTIF[key]=1;
+  try{await FS.collection('correos').doc(key).set({uid:AUTH.user.uid,pid,ts:Date.now()})}catch(e){return} // ya se avisó hoy
+  const p=projOf(pid),to=bafarEmails(p);if(!to.length)return;
+  sendMail(to,`${AUTH.nombre||AUTH.user.email} está editando ${p.nombre}`,mailHTML('Un contratista está editando',[
+    ['Proyecto',p.nombre],['Quién',(AUTH.nombre||'')+' ('+AUTH.user.email+')'],['Qué hizo',txt],['Hora',new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'})],
+    ['','Solo se envía un aviso por persona al día; el detalle completo está en «Actividad reciente».']],linkTo(pid),'Ver el proyecto'))}
+
+/* ================= EN VIVO: quién está conectado y qué hace ================= */
+const PRES={det:'',lastEdit:0,pid:undefined,unsub:null,list:[],prev:{},timers:[]};
+const ACT={ev:[],unsub:null,seen:0};
+function presBeat(){
+  if(!FS||!AUTH.user||!AUTH.ok)return;const ed=(Date.now()-PRES.lastEdit<120000)||(!!PRES.det&&S.canWrite);
+  FS.collection('presencia').doc(AUTH.user.uid).set({uid:AUTH.user.uid,nombre:AUTH.nombre||AUTH.user.email,email:String(AUTH.user.email||'').toLowerCase(),pid:S.cur||null,acc:ed?'editando':'viendo',det:PRES.det||'',ts:Date.now(),bafar:!!AUTH.bafar}).catch(()=>{})}
+function syncLive(){
+  if(!FS||!AUTH.ok||!S.ready)return;const pid=S.cur||null;if(PRES.pid===pid)return;
+  PRES.pid=pid;presBeat();subPres();subAct()}
+function subPres(){
+  if(PRES.unsub){PRES.unsub();PRES.unsub=null}PRES.list=[];PRES.prev={};renderLive();
+  const q=AUTH.admin?FS.collection('presencia'):(PRES.pid?FS.collection('presencia').where('pid','==',PRES.pid):null);if(!q)return;
+  PRES.unsub=q.onSnapshot(s=>{const now=Date.now(),list=s.docs.map(d=>d.data()).filter(x=>x&&x.uid!==AUTH.user.uid&&now-(x.ts||0)<150000);
+    list.forEach(x=>{const pv=PRES.prev[x.uid];if(x.acc==='editando'&&x.pid===S.cur&&(!pv||pv.acc!=='editando'||pv.pid!==x.pid))toast(`${x.nombre} está editando${x.det?': '+x.det:' este proyecto'}.`)});
+    PRES.prev={};list.forEach(x=>{PRES.prev[x.uid]=x});PRES.list=list;renderLive()},()=>{})}
+function subAct(){
+  if(ACT.unsub){ACT.unsub();ACT.unsub=null}ACT.ev=[];const pid=PRES.pid;if(!pid)return;ACT.seen=Date.now();
+  ACT.unsub=FS.collection('actividad').doc(pid).onSnapshot(d=>{const ev=(d.exists&&d.data().ev)||[];
+    ev.filter(e=>e.ts>ACT.seen&&e.uid!==AUTH.user.uid).forEach(e=>toast(`${e.nombre} ${e.txt}`));
+    ev.forEach(e=>{if(e.ts>ACT.seen)ACT.seen=e.ts});ACT.ev=ev;const el=$('#actlist');if(el)el.innerHTML=actHTML()},()=>{})}
+async function logAct(txt){
+  PRES.lastEdit=Date.now();if(!FS||!AUTH.user||!S.cur||!S.canWrite)return;const pid=S.cur;
+  const ev={uid:AUTH.user.uid,nombre:AUTH.nombre||AUTH.user.email,txt,ts:Date.now(),bafar:!!AUTH.bafar},ref=FS.collection('actividad').doc(pid);
+  presBeat();
+  try{await FS.runTransaction(async tx=>{const d=await tx.get(ref);const arr=(d.exists&&d.data().ev)||[];arr.push(ev);tx.set(ref,{pid,ev:arr.slice(-40)})})}catch(e){}
+  if(!AUTH.bafar)notifyEditing(pid,txt)}
+const initials=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
+function renderLive(){
+  const el=$('#live');if(!el)return;const now=Date.now(),l=PRES.list.filter(x=>now-(x.ts||0)<150000);
+  el.classList.toggle('hide',!l.length);if(!l.length){el.innerHTML='';return}
+  el.innerHTML=`<span style="display:flex">${l.slice(0,3).map(x=>`<span class="av ${x.acc==='editando'?'ed':''}" title="${esc(x.nombre)}">${esc(initials(x.nombre))}</span>`).join('')}</span><span>${l.length} en línea${l.some(x=>x.acc==='editando')?' · editando':''}</span>`}
+function openLive(){
+  const now=Date.now(),l=PRES.list.filter(x=>now-(x.ts||0)<150000).sort((a,b)=>(a.acc==='editando'?0:1)-(b.acc==='editando'?0:1));
+  openModal(`<div class="mh"><h3>Conectados ahora</h3><button class="btn ghost" data-act="mclose" aria-label="Cerrar">✕</button></div><div class="mb">${l.map(x=>{const p=projOf(x.pid);
+    return `<div class="act-li"><span class="av" style="width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:${x.acc==='editando'?'#d4700c':'#2563c9'};flex:none">${esc(initials(x.nombre))}</span><span style="flex:1"><b>${esc(x.nombre)}</b>${x.bafar?' <span class="tag-b">Bafar</span>':''}<div class="sm mut">${esc(x.email||'')}</div><div class="sm">${x.acc==='editando'?'<b style="color:var(--real)">Editando</b>':'Viendo'}${p?' · '+esc(p.nombre):''}${x.det?' · '+esc(x.det):''}</div></span><span class="sm mut nw">${fmtWhen(x.ts)}</span></div>`}).join('')||'<div class="mut">No hay nadie más conectado.</div>'}</div><div class="mf"><button class="btn" data-act="mclose">Cerrar</button></div>`)}
+
+/* ================= PANTALLA DE ACCESO ================= */
 let AU={view:'login',msg:'',kind:'',busy:false};
 function authShow(on){$('#auth').hidden=!on}
 function auMsg(){return AU.msg?`<div class="au-msg ${AU.kind||'err'}">${esc(AU.msg)}</div>`:''}
 function renderAuth(){
   const c=$('#au-card');const dis=AU.busy?'disabled':'';
-  if(AU.view==='config'){c.innerHTML=`<h2>Falta configurar Firebase</h2><p class="sm" style="margin:0">Abre este archivo en un editor de texto y pega la configuración de tu proyecto en <b>FIREBASE_CONFIG</b>. La guía de instalación explica dónde encontrarla.</p>`;return}
-  if(AU.view==='pend'){c.innerHTML=`<h2>Cuenta en revisión</h2><p style="margin:0">Hola${AUTH.nombre?' '+esc(AUTH.nombre):''}. Tu cuenta ya está creada, pero un administrador debe darte acceso. En cuanto lo haga, esta pantalla se abrirá sola.</p>${auMsg()}<button class="btn" data-fb="logout">Salir</button>`;return}
+  if(AU.view==='config'){c.innerHTML=`<h2>Falta configurar Firebase</h2><p class="sm" style="margin:0">Pega la configuración de tu proyecto en <b>FIREBASE_CONFIG</b> dentro de este archivo.</p>`;return}
+  if(AU.view==='verify'){c.innerHTML=`<h2>Verifica tu correo</h2><p style="margin:0">Te enviamos un link a <b>${esc(AUTH.user?AUTH.user.email:'')}</b>. Ábrelo (revisa también correo no deseado) y después toca «Ya lo verifiqué».</p>${auMsg()}<button class="btn pri" data-fb="vcheck" ${dis}>Ya lo verifiqué</button><div class="au-links"><button data-fb="vsend">Reenviar el correo</button><button data-fb="logout">Salir</button></div>`;return}
+  if(AU.view==='pend'){c.innerHTML=`<h2>Cuenta lista</h2><p style="margin:0">Hola${AUTH.nombre?' '+esc(AUTH.nombre):''}. Tu cuenta ya está creada, pero un administrador de Bafar debe darte acceso a tu proyecto. En cuanto lo haga, esta pantalla se abrirá sola.</p>${auMsg()}<button class="btn" data-fb="logout">Salir</button>`;return}
   if(AU.view==='signup'){c.innerHTML=`<h2>Crear cuenta</h2>${auMsg()}<form id="au-f" data-k="signup" style="display:flex;flex-direction:column;gap:12px"><label>Nombre completo<input id="au-n" autocomplete="name" required></label><label>Correo<input id="au-e" type="email" autocomplete="email" required></label><label>Contraseña (mínimo 6 caracteres)<input id="au-p" type="password" autocomplete="new-password" minlength="6" required></label><button class="btn pri" ${dis}>Crear cuenta</button></form><div class="au-links"><button data-fb="v-login">Ya tengo cuenta</button></div>`;return}
   if(AU.view==='reset'){c.innerHTML=`<h2>Recuperar contraseña</h2>${auMsg()}<form id="au-f" data-k="reset" style="display:flex;flex-direction:column;gap:12px"><label>Correo<input id="au-e" type="email" autocomplete="email" required></label><button class="btn pri" ${dis}>Enviar correo de recuperación</button></form><div class="au-links"><button data-fb="v-login">Volver</button></div>`;return}
   c.innerHTML=`<h2>Entrar</h2>${auMsg()}<form id="au-f" data-k="login" style="display:flex;flex-direction:column;gap:12px"><label>Correo<input id="au-e" type="email" autocomplete="email" required></label><label>Contraseña<input id="au-p" type="password" autocomplete="current-password" required></label><button class="btn pri" ${dis}>Entrar</button></form><div class="au-links"><button data-fb="v-signup">Crear cuenta</button><button data-fb="v-reset">Olvidé mi contraseña</button></div>`}
-const AUERR={'auth/invalid-email':'El correo no es válido.','auth/user-not-found':'Correo o contraseña incorrectos.','auth/wrong-password':'Correo o contraseña incorrectos.','auth/invalid-credential':'Correo o contraseña incorrectos.','auth/invalid-login-credentials':'Correo o contraseña incorrectos.','auth/email-already-in-use':'Ese correo ya tiene cuenta. Usa "Ya tengo cuenta".','auth/weak-password':'La contraseña debe tener al menos 6 caracteres.','auth/too-many-requests':'Demasiados intentos. Espera unos minutos.','auth/network-request-failed':'Sin conexión a internet.','auth/operation-not-allowed':'El acceso con correo no está activado en Firebase (ver guía, paso 3).'};
+const AUERR={'auth/invalid-email':'El correo no es válido.','auth/user-not-found':'Correo o contraseña incorrectos.','auth/wrong-password':'Correo o contraseña incorrectos.','auth/invalid-credential':'Correo o contraseña incorrectos.','auth/invalid-login-credentials':'Correo o contraseña incorrectos.','auth/email-already-in-use':'Ese correo ya tiene cuenta. Usa "Ya tengo cuenta".','auth/weak-password':'La contraseña debe tener al menos 6 caracteres.','auth/too-many-requests':'Demasiados intentos. Espera unos minutos.','auth/network-request-failed':'Sin conexión a internet.','auth/operation-not-allowed':'El acceso con correo no está activado en Firebase.'};
+async function sendVerif(u,strict){ // con link de regreso a la página; si el dominio no está autorizado, sin él
+  try{await u.sendEmailVerification({url:location.origin+location.pathname})}
+  catch(e){try{await u.sendEmailVerification()}catch(e2){if(strict)throw e2}}}
 const auErr=e=>AUERR[e&&e.code]||('No se pudo completar ('+((e&&(e.code||e.message))||'error')+').');
 document.addEventListener('submit',async ev=>{
   const f=ev.target;if(f.id!=='au-f')return;ev.preventDefault();if(AU.busy)return;
@@ -1413,75 +1754,142 @@ document.addEventListener('submit',async ev=>{
   AU.busy=true;AU.msg='';renderAuth();
   try{
     if(k==='login')await firebase.auth().signInWithEmailAndPassword(email,pass);
-    else if(k==='signup'){AUTH.pendingName=nombre; // la ficha "pendiente" la crea el listener de sesión
+    else if(k==='signup'){AUTH.pendingName=nombre;
       const cr=await firebase.auth().createUserWithEmailAndPassword(email,pass);
-      try{await cr.user.updateProfile({displayName:nombre})}catch(e){}}
+      try{await cr.user.updateProfile({displayName:nombre})}catch(e){}
+      await sendVerif(cr.user)}
     else if(k==='reset'){await firebase.auth().sendPasswordResetEmail(email);AU={view:'login',msg:'Te enviamos un correo para crear una nueva contraseña.',kind:'ok',busy:false};renderAuth();return}
   }catch(e){AU.msg=auErr(e);AU.kind='err'}
   AU.busy=false;if($('#auth').hidden===false)renderAuth()});
 
-/* ---- cuenta en la cabecera y administración de usuarios ---- */
+/* ================= ACCESOS (solo administradores Bafar) ================= */
 function renderAcct(){const el=$('#acct');if(!el)return;
-  if(!AUTH.user){el.innerHTML='';return}
-  const rl=AUTH.admin?'admin':AUTH.rol;
-  el.innerHTML=`<span class="who" title="${esc(AUTH.user.email||'')}">${esc(AUTH.nombre||AUTH.user.email||'')}</span><span class="rol">${esc(ROLES[rl]||rl||'')}</span>${AUTH.admin?'<button class="btn sm" data-fb="users">Usuarios</button>':''}<button class="btn sm" data-fb="logout">Salir</button>`}
-let USERS=[];
+  if(!AUTH.user||!AUTH.ok){el.innerHTML=AUTH.user?'<button class="btn sm" data-fb="logout">Salir</button>':'';return}
+  el.innerHTML=`<span class="who" title="${esc(AUTH.user.email||'')}">${esc(AUTH.nombre||AUTH.user.email||'')}</span><span class="rol">${esc(ROLES[AUTH.rol]||AUTH.rol||'')}</span>${AUTH.admin?'<button class="btn sm" data-fb="users">Accesos</button>':''}<button class="btn sm" data-fb="logout">Salir</button>`}
+const ACC={users:[],invs:[]};
 async function openUsers(){
-  try{const q=await FS.collection('usuarios').get();USERS=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.rol==='pendiente'?0:1)-(b.rol==='pendiente'?0:1)||String(a.nombre||a.email).localeCompare(String(b.nombre||b.email)))}
-  catch(e){toast('No se pudo leer la lista de usuarios ('+(e.code||e.message)+').','err');return}
+  try{const [u,v]=await Promise.all([FS.collection('usuarios').get(),FS.collection('invitaciones').get()]);
+    ACC.users=u.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(isBafarEmail(a.email)?1:0)-(isBafarEmail(b.email)?1:0)||(a.rol==='pendiente'?0:1)-(b.rol==='pendiente'?0:1)||String(a.nombre||a.email).localeCompare(String(b.nombre||b.email)));
+    ACC.invs=v.docs.map(d=>({id:d.id,...d.data()}))}
+  catch(e){toast('No se pudo leer la lista de accesos ('+(e.code||e.message)+'). Revisa que las reglas nuevas de Firestore estén publicadas.','err');return}
   renderUsers()}
+const projChecks=(name,sel,lbl)=>S.proy.length?`<div class="chk">${S.proy.map(p=>`<label><input type="checkbox" ${name} value="${esc(p.id)}" ${(sel||[]).includes(p.id)?'checked':''}> ${esc(p.nombre)}</label>`).join('')}</div>`:'<span class="mut sm">Aún no hay proyectos.</span>';
+const projNames=ids=>(ids||[]).map(id=>(projOf(id)||{}).nombre).filter(Boolean);
 function renderUsers(){
-  const rows=USERS.map(u=>{const fixed=ADMIN_EMAILS.includes(String(u.email||'').toLowerCase());
-    return `<tr><td><div class="b">${esc(u.nombre||'(sin nombre)')}</div><div class="sm mut">${esc(u.email||'')}</div></td><td class="r">${fixed?'<span class="sm">Administrador (fijo)</span>':`<select data-fbrol="${esc(u.id)}" aria-label="Rol de ${esc(u.nombre||u.email||'')}">${['pendiente','lector','editor','admin'].map(r=>`<option value="${r}"${u.rol===r?' selected':''}>${ROLES[r]}</option>`).join('')}</select>`}</td></tr>`}).join('');
-  const np=USERS.filter(u=>u.rol==='pendiente'&&!ADMIN_EMAILS.includes(String(u.email||'').toLowerCase())).length;
-  openModal(`<div class="mh"><h3>Usuarios</h3><button class="btn ghost" data-act="mclose" aria-label="Cerrar">✕</button></div><div class="mb"><p class="sm mut" style="margin-top:0">Quien se registra entra como <b>Pendiente</b> y no ve nada hasta que le asignes un rol. <b>Solo lectura</b> consulta; <b>Editor</b> captura avance, inspecciones y cortes; <b>Administrador</b> además gestiona usuarios.${np?` <span class="rol-pendiente">${np} por aprobar.</span>`:''}</p><div class="tw"><table class="t ut"><tbody>${rows||'<tr><td class="mut">Aún no hay usuarios registrados.</td></tr>'}</tbody></table></div></div><div class="mf"><button class="btn" data-act="mclose">Cerrar</button></div>`)}
-document.addEventListener('change',async ev=>{const el=ev.target;if(!el.dataset||!el.dataset.fbrol)return;
-  const id=el.dataset.fbrol,rol=el.value;
-  try{await FS.collection('usuarios').doc(id).update({rol});const u=USERS.find(x=>x.id===id);if(u)u.rol=rol;toast('Rol actualizado: '+ROLES[rol]+'.')}
-  catch(e){toast('No se pudo cambiar el rol ('+(e.code||e.message)+').','err');renderUsers()}});
-document.addEventListener('click',ev=>{const b=ev.target.closest&&ev.target.closest('[data-fb]');if(!b)return;const a=b.dataset.fb;
-  if(a==='logout'){firebase.auth().signOut();return}
+  const sc=$('#modal').scrollTop;
+  const rows=ACC.users.map(u=>{const bf=isBafarEmail(u.email),pn=projNames(u.proyectos);
+    return `<tr><td><div class="b">${esc(u.nombre||'(sin nombre)')}</div><div class="sm mut">${esc(u.email||'')}</div></td>
+     <td>${bf?'<span class="chip lib">Administrador Bafar</span>':`<select data-acrol="${esc(u.id)}" aria-label="Rol de ${esc(u.nombre||u.email||'')}">${['pendiente','lector','editor'].map(r=>`<option value="${r}"${(u.rol||'pendiente')===r?' selected':''}>${ROLES[r]}</option>`).join('')}</select>`}</td>
+     <td><details><summary>${bf?'Avisos de: ':''}${pn.length?esc(pn.join(', ')):bf?'ningún proyecto':'<span class="rol-pendiente">Sin proyecto</span>'}</summary><div style="margin-top:6px">${projChecks(`data-acp="${esc(u.id)}"`,u.proyectos)}</div></details></td></tr>`}).join('');
+  const inv=ACC.invs.map(v=>`<tr><td>${esc(v.email)}</td><td>${esc(ROLES[v.rol]||v.rol)}</td><td class="sm">${esc(projNames(v.proyectos).join(', ')||'—')}</td><td class="r"><button class="btn sm dng" data-fb="acinvdel" data-e="${esc(v.id)}">Quitar</button></td></tr>`).join('');
+  const c=EMAILCFG||{};const np=ACC.users.filter(u=>!isBafarEmail(u.email)&&(u.rol==='pendiente'||!(u.proyectos||[]).length)).length;
+  openModal(`<div class="mh"><h3>Accesos</h3><button class="btn ghost" data-act="mclose" aria-label="Cerrar">✕</button></div><div class="mb">
+   <div class="card" style="margin-bottom:14px"><h3>Dar acceso a un correo</h3><div class="bd"><div class="fg f">
+    <label class="full">Correo<input type="email" id="ac-e" placeholder="contratista@empresa.com"></label>
+    <label>Permiso<select id="ac-r"><option value="editor">Editor: captura inspecciones, avance y cortes</option><option value="lector">Solo lectura</option></select></label><div></div>
+    <div class="full"><div class="sm" style="margin-bottom:4px;color:var(--ink2)">Proyectos a los que entra (no ve los demás)</div>${projChecks('name="ac-p"',[S.cur])}</div></div>
+    <div class="wl" style="margin-top:12px"><button class="btn pri" data-fb="acgive">Dar acceso y avisar por correo</button><span class="sm mut">Si aún no tiene cuenta, entra con este acceso en cuanto se registre y verifique su correo.</span></div></div></div>
+   <p class="sm mut" style="margin:0 0 8px">Los correos <b>@${BAFAR_DOMAIN}</b> son administradores fijos: ven todos los proyectos, dan accesos y son los únicos que liberan y firman inspecciones. Marca en qué proyectos reciben avisos por correo.${np?` <span class="rol-pendiente">${np} cuenta(s) sin acceso.</span>`:''}</p>
+   <div class="tw"><table class="t ut"><thead><tr><th>Persona</th><th>Permiso</th><th>Proyectos</th></tr></thead><tbody>${rows||'<tr><td class="mut">Aún no hay usuarios registrados.</td></tr>'}</tbody></table></div>
+   ${inv?`<h4 style="margin:16px 0 6px">Accesos esperando registro</h4><div class="tw"><table class="t ut"><tbody>${inv}</tbody></table></div>`:''}
+   <details style="margin-top:16px"><summary class="b" style="cursor:pointer">Correos automáticos (EmailJS) ${c.publicKey&&c.serviceId&&c.templateId?'<span class="chip lib">Configurado</span>':'<span class="chip nolib">Sin configurar</span>'}</summary><div class="fg f" style="margin-top:10px">
+    <label>Public Key<input type="text" id="ej-pk" value="${esc(c.publicKey||'')}"></label><label>Service ID<input type="text" id="ej-sv" value="${esc(c.serviceId||'')}"></label><label>Template ID<input type="text" id="ej-tp" value="${esc(c.templateId||'')}"></label><div></div></div>
+    <div class="wl" style="margin-top:10px"><button class="btn" data-fb="ejsave">Guardar</button><button class="btn" data-fb="ejtest">Enviarme un correo de prueba</button></div></details>
+  </div><div class="mf"><button class="btn" data-act="mclose">Cerrar</button></div>`,'wide');$('#modal').scrollTop=sc}
+async function recomputeEquipo(){ // lista de correos por proyecto que reciben avisos
+  for(const p of S.proy){
+    const list=uniqEmails([...ACC.users.filter(u=>(u.proyectos||[]).includes(p.id)&&(isBafarEmail(u.email)||u.rol==='editor'||u.rol==='lector')).map(u=>u.email),...ACC.invs.filter(v=>(v.proyectos||[]).includes(p.id)).map(v=>v.email)]).sort();
+    if(JSON.stringify(list)!==JSON.stringify((p.equipo||[]).slice().sort())){const q=clone(p);q.equipo=list;saveMeta(q)}}}
+async function updUser(id,ch){
+  const u=ACC.users.find(x=>x.id===id);if(!u)return;
+  try{await FS.collection('usuarios').doc(id).update(ch);Object.assign(u,ch);
+    if(u.email&&ACC.invs.some(v=>v.id===u.email)){await FS.collection('invitaciones').doc(u.email).delete().catch(()=>{});ACC.invs=ACC.invs.filter(v=>v.id!==u.email)}
+    await recomputeEquipo();toast('Acceso actualizado.')}
+  catch(e){toast('No se pudo actualizar ('+(e.code||e.message)+').','err')}
+  renderUsers()}
+async function giveAccess(){
+  const email=($('#ac-e').value||'').trim().toLowerCase(),rol=$('#ac-r').value,pids=[...document.querySelectorAll('input[name="ac-p"]:checked')].map(x=>x.value);
+  if(!validEmail(email))return toast('Escribe un correo válido.','err');
+  const bf=isBafarEmail(email);if(!bf&&!pids.length)return toast('Elige al menos un proyecto.','err');
+  const u=ACC.users.find(x=>String(x.email||'').toLowerCase()===email);
+  try{
+    if(u){const ch=bf?{proyectos:pids}:{rol,proyectos:pids};await FS.collection('usuarios').doc(u.id).update(ch);Object.assign(u,ch);
+      if(ACC.invs.some(v=>v.id===email)){await FS.collection('invitaciones').doc(email).delete().catch(()=>{});ACC.invs=ACC.invs.filter(v=>v.id!==email)}}
+    else if(!bf){const v={email,rol,proyectos:pids,por:AUTH.user.email,ts:Date.now()};await FS.collection('invitaciones').doc(email).set(v);ACC.invs=ACC.invs.filter(x=>x.id!==email).concat([{id:email,...v}])}
+    await recomputeEquipo()}
+  catch(e){return toast('No se pudo dar el acceso ('+(e.code||e.message)+').','err')}
+  const names=projNames(pids);
+  sendMail([email],'Acceso a la plataforma de control de obra de Grupo Bafar',mailHTML('Tienes acceso a la plataforma',[
+    ['Proyecto(s)',bf?'Todos (administrador Bafar)':names.join(', ')],['Permiso',bf?'Administrador':ROLES[rol]],['Te dio acceso',(AUTH.nombre||'')+' ('+AUTH.user.email+')'],
+    ['Cómo entrar',u?'Entra con tu correo y contraseña de siempre.':'Toca el botón, elige «Crear cuenta» con este mismo correo y verifica el link que te llegará.']],location.origin+location.pathname,u?'Entrar':'Crear mi cuenta'));
+  toast(u?'Acceso actualizado.':bf?'Los correos Bafar entran como administradores al registrarse. Se le envió el link.':'Acceso listo: entrará en cuanto se registre.');renderUsers()}
+document.addEventListener('change',ev=>{const el=ev.target,d=el.dataset||{};
+  if(d.acrol){updUser(d.acrol,{rol:el.value});return}
+  if(d.acp){const u=ACC.users.find(x=>x.id===d.acp);if(!u)return;const s=new Set(u.proyectos||[]);el.checked?s.add(el.value):s.delete(el.value);updUser(u.id,{proyectos:[...s]});return}});
+document.addEventListener('click',async ev=>{const b=ev.target.closest&&ev.target.closest('[data-fb]');if(!b)return;const a=b.dataset.fb;
+  if(a==='logout'){try{if(AUTH.user)await FS.collection('presencia').doc(AUTH.user.uid).delete()}catch(e){}firebase.auth().signOut();return}
   if(a==='users'){openUsers();return}
+  if(a==='live'){openLive();return}
+  if(a==='acgive'){giveAccess();return}
+  if(a==='acinvdel'){try{await FS.collection('invitaciones').doc(b.dataset.e).delete();ACC.invs=ACC.invs.filter(v=>v.id!==b.dataset.e);await recomputeEquipo();renderUsers()}catch(e){toast('No se pudo quitar ('+(e.code||e.message)+').','err')}return}
+  if(a==='ejsave'){const c={publicKey:$('#ej-pk').value.trim(),serviceId:$('#ej-sv').value.trim(),templateId:$('#ej-tp').value.trim()};
+    try{await FS.collection('config').doc('emailjs').set(c);EMAILCFG=c;toast('Configuración de correos guardada.');renderUsers()}catch(e){toast('No se pudo guardar ('+(e.code||e.message)+').','err')}return}
+  if(a==='ejtest'){const ok=await sendMail([AUTH.user.email],'Prueba de avisos · Control de obra Bafar',mailHTML('Correo de prueba',[['Resultado','Si lees esto, los avisos por correo ya funcionan.']],location.origin+location.pathname));if(ok)toast('Correo de prueba enviado a '+AUTH.user.email+'.');return}
+  if(a==='vsend'){try{await sendVerif(AUTH.user,true);AU.msg='Correo reenviado.';AU.kind='ok'}catch(e){AU.msg=auErr(e);AU.kind='err'}renderAuth();return}
+  if(a==='vcheck'){AU.busy=true;renderAuth();try{await AUTH.user.reload();await AUTH.user.getIdToken(true)}catch(e){}AU.busy=false;
+    if(firebase.auth().currentUser&&firebase.auth().currentUser.emailVerified){onUser(firebase.auth().currentUser)}else{AU.msg='Todavía no aparece verificado. Abre el link del correo y vuelve a intentar.';AU.kind='err';renderAuth()}return}
   if(a.startsWith('v-')){AU={view:a.slice(2),msg:'',kind:'',busy:false};renderAuth();setTimeout(()=>{const i=$('#au-card input');if(i)i.focus()},0)}});
 
-/* ---- sesión ---- */
-function stopData(){AUTH.unsub.forEach(u=>{try{u()}catch(e){}});AUTH.unsub=[];db=null;assets=null;
-  S.proy=[];S.prog={};S.insps=[];S.cortes=[];S.nch={};S.dirty={};S.ready=false;touch()}
+/* ================= SESIÓN ================= */
+function stopData(){
+  AUTH.unsub.forEach(u=>{try{u()}catch(e){}});AUTH.unsub=[];db=null;assets=null;AUTH.key='';
+  if(PRES.unsub){PRES.unsub();PRES.unsub=null}if(ACT.unsub){ACT.unsub();ACT.unsub=null}PRES.timers.forEach(clearInterval);PRES.timers=[];PRES.pid=undefined;PRES.list=[];ACT.ev=[];renderLive();
+  S.proy=[];S.prog={};S.insps=[];S.cortes=[];S.libs={};S.nch={};S.dirty={};S.ready=false;touch()}
 function startData(){
   if(db)return;db=fsAdapter(FS);S.mode='db';
   S.canWrite=AUTH.admin||AUTH.rol==='editor';assets=S.canWrite?fbAssets:null;
   S.me.name=AUTH.nombre||(AUTH.user.email||'');S.me.id=AUTH.user.uid;
-  subscribeAll();setTimeout(()=>{if(!S.ready){S.ready=true;render()}},7000);render()}
-function applyRole(){
-  const ok=AUTH.admin||['editor','lector'].includes(AUTH.rol);
-  if(!ok){stopData();AU={view:'pend',msg:'',kind:'',busy:false};renderAuth();authShow(true);renderAcct();return}
-  authShow(false);
-  const cw=AUTH.admin||AUTH.rol==='editor';
-  if(db&&cw!==S.canWrite){S.canWrite=cw;assets=cw?fbAssets:null;render()}
-  startData();renderAcct()}
+  loadEmailCfg();subscribeAll();
+  PRES.timers.push(setInterval(presBeat,45000),setInterval(renderLive,30000));
+  setTimeout(()=>{if(!S.ready){S.ready=true;render()}},7000);render()}
+function applyRole(x){
+  if(x.nombre)AUTH.nombre=x.nombre;
+  const rol=AUTH.bafar?'admin':(x.rol||'pendiente'),proys=AUTH.bafar?[]:(x.proyectos||[]).filter(Boolean);
+  AUTH.rol=rol;AUTH.admin=AUTH.bafar;
+  const ok=AUTH.bafar||(['editor','lector'].includes(rol)&&proys.length>0);
+  if(!ok){stopData();AUTH.ok=false;AU={view:'pend',msg:'',kind:'',busy:false};renderAuth();authShow(true);renderAcct();return}
+  AUTH.ok=true;authShow(false);
+  const key=rol+'|'+proys.slice().sort().join(',');
+  if(db&&key===AUTH.key){S.canWrite=AUTH.admin||rol==='editor';renderAcct();render();return}
+  stopData();AUTH.key=key;AUTH.proys=proys;startData();renderAcct()}
+let roleUnsub=null;
+async function onUser(u){
+  if(roleUnsub){roleUnsub();roleUnsub=null}
+  stopData();AUTH.user=u;AUTH.rol=null;AUTH.admin=false;AUTH.bafar=false;AUTH.ok=false;AUTH.invTried=false;
+  if(!u){AUTH.nombre='';AU={view:AU.view==='signup'||AU.view==='reset'?AU.view:'login',msg:AU.msg,kind:AU.kind,busy:false};renderAuth();authShow(true);renderAcct();return}
+  AUTH.nombre=u.displayName||AUTH.pendingName||'';
+  const email=String(u.email||'').toLowerCase(),ref=FS.collection('usuarios').doc(u.uid);
+  if(!u.emailVerified){
+    ref.get().then(d=>{if(!d.exists)return ref.set({nombre:AUTH.nombre,email,rol:'pendiente',proyectos:[],creado:SVT()})}).catch(()=>{});
+    AU={view:'verify',msg:'',kind:'',busy:false};renderAuth();authShow(true);renderAcct();return}
+  AUTH.bafar=isBafarEmail(email);
+  $('#au-card').innerHTML='<h2>Entrando…</h2>';
+  roleUnsub=ref.onSnapshot(async d=>{
+    if(!d.exists){try{await ref.set({nombre:AUTH.nombre,email,rol:'pendiente',proyectos:[],creado:SVT()})}catch(e){}if(!AUTH.bafar)return}
+    const x=d.exists?d.data():{};
+    if(!AUTH.bafar&&(x.rol||'pendiente')==='pendiente'&&!AUTH.invTried){AUTH.invTried=true; // ¿un administrador ya le dio acceso antes de registrarse?
+      try{const inv=await FS.collection('invitaciones').doc(email).get();if(inv.exists){const v=inv.data();await ref.update({rol:v.rol,proyectos:v.proyectos||[]});return}}catch(e){}}
+    applyRole(x)},
+    e=>{AU={view:'login',msg:'No se pudo leer tu perfil ('+(e.code||e.message)+'). Revisa que las reglas de Firestore estén publicadas.',kind:'err',busy:false};renderAuth();authShow(true)})}
 async function init(){
-  $('#au-logo').src=LOGO_BAFAR;prefLoad();render();
+  $('#au-logo').src=LOGO_BAFAR;prefLoad();S.libs={};render();
   dl=fbDownloads;
   if(!window.firebase||!FIREBASE_CONFIG.apiKey||!FIREBASE_CONFIG.projectId){AU.view='config';
     if(!window.firebase){$('#au-card').innerHTML='<h2>Sin conexión</h2><p style="margin:0">No se pudieron cargar los servicios de Firebase. Revisa tu conexión a internet y recarga la página.</p>';return}
     renderAuth();return}
   firebase.initializeApp(FIREBASE_CONFIG);FS=firebase.firestore();
-  let roleUnsub=null;
-  firebase.auth().onAuthStateChanged(async u=>{
-    if(roleUnsub){roleUnsub();roleUnsub=null}
-    stopData();AUTH.user=u;AUTH.rol=null;AUTH.admin=false;
-    if(!u){AUTH.nombre='';AU={view:AU.view==='signup'||AU.view==='reset'?AU.view:'login',msg:AU.msg,kind:AU.kind,busy:false};renderAuth();authShow(true);renderAcct();return}
-    AUTH.emailAdmin=ADMIN_EMAILS.map(x=>x.toLowerCase()).includes(String(u.email||'').toLowerCase());AUTH.admin=AUTH.emailAdmin;
-    AUTH.nombre=u.displayName||AUTH.pendingName||'';
-    $('#au-card').innerHTML='<h2>Entrando…</h2>';
-    const ref=FS.collection('usuarios').doc(u.uid);
-    roleUnsub=ref.onSnapshot(async d=>{
-      if(!d.exists){ // cuenta sin ficha (p. ej. creada desde la consola): se registra como pendiente
-        try{await ref.set({nombre:AUTH.pendingName||u.displayName||'',email:String(u.email||'').toLowerCase(),rol:'pendiente',creado:firebase.firestore.FieldValue.serverTimestamp()})}catch(e){}
-        if(!AUTH.emailAdmin)return;}
-      const x=d.exists?d.data():{};AUTH.rol=x.rol||'pendiente';if(x.nombre)AUTH.nombre=x.nombre;AUTH.admin=AUTH.emailAdmin||x.rol==='admin';
-      applyRole()},
-      e=>{AU={view:'login',msg:'No se pudo leer tu perfil ('+(e.code||e.message)+'). Revisa que las reglas de Firestore estén publicadas.',kind:'err',busy:false};renderAuth();authShow(true)})})}
+  firebase.auth().onAuthStateChanged(onUser);
+  window.addEventListener('pagehide',()=>{if(AUTH.user&&FS)FS.collection('presencia').doc(AUTH.user.uid).delete().catch(()=>{})})}
 init();
 
 </script>
