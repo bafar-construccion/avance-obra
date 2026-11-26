@@ -556,20 +556,34 @@ function checkState(items,list,asOf){
   items.forEach(it=>{const r=map[it.id];if(r==='SI')si++;else if(r==='NO')no++;else if(r==='NA')na++;else pend++});
   const apl=items.length-na,lib=items.length>0&&no===0&&pend===0;
   return{si,no,na,pend,apl,lib,n:items.length,pc:items.length===0?0:lib?1:(apl>0?si/apl:0),map}}
-function markOf(t,asOf){const h=t.rh;if(!h||!h.length)return null;let v=null;for(const m of h){const d=dn(m[0]);if(d!=null&&d<=asOf)v=m[1]}return v}
+/* Avance real marcado (rh = [[fecha,%],…]) a la fecha asOf. Con lin (por omisión) el avance se reparte en el tiempo, como el
+   avance real por periodo de MS Project: de 0 % en el inicio programado de la actividad al % de la primera marca, y de ahí
+   linealmente (días laborables) entre marcas; después de la última marca se mantiene. Los hitos no se reparten (0/100). */
+function markOf(t,asOf,cal,lin){const h=t.rh;if(!h||!h.length)return null;
+  let a=null,b=null;
+  for(const m of h){const d=dn(m[0]);if(d==null)continue;if(d<=asOf)a=[d,+m[1]];else{b=[d,+m[1]];break}}
+  if(!lin||!cal||t.ms)return a?a[1]:null;
+  if(!a){if(!b)return null;
+    const s0=dn(t.s),an=s0!=null&&s0<b[0]?s0:b[0];
+    if(asOf<an)return 0;
+    const tot=workBetween(an,b[0],cal);if(tot<=0)return 0;
+    return b[1]*Math.min(1,workBetween(an,asOf,cal)/tot)}
+  if(!b)return a[1];
+  const tot=workBetween(a[0]+1,b[0],cal);if(tot<=0)return a[1];
+  return a[1]+(b[1]-a[1])*Math.min(1,workBetween(a[0]+1,asOf,cal)/tot)}
 function calcAll(P,insps,asOf){
   const T=P.tasks,cal=mkCal(P.cfg),{par,kids}=buildTree(T),n=T.length;
   const by={};insps.forEach(i=>{(by[i.tid]=by[i.tid]||[]).push(i)});
   Object.values(by).forEach(a=>a.sort((x,y)=>(x.fecha||'').localeCompare(y.fecha||'')||(x.creado||0)-(y.creado||0)));
   const excl=new Array(n).fill(false);for(let i=0;i<n;i++)excl[i]=!!T[i].x||(par[i]>=0&&excl[par[i]]);
-  const R=new Array(n);
+  const R=new Array(n),lin=curvaCfg(P).rep!=='dia';
   const planAt=(t,which,at)=>{const s=dn(which==='b'?(t.bs||t.s):t.s),f=dn(which==='b'?(t.bf||t.f):t.f);
     if(s==null||f==null)return 0;if(at<s)return 0;if(at>=f)return 1;const tot=workBetween(s,f,cal);if(tot<=0)return at>=f?1:0;return Math.min(1,workBetween(s,at,cal)/tot)};
   for(let i=0;i<n;i++){const t=T[i];const leaf=kids[i].length===0;
     const r=R[i]={i,leaf,ms:!!t.ms,excl:excl[i],w:0,pc:0,pb:0,pr:0,st:'Pendiente',cs:null,nI:0,pm:0};
     if(!leaf)continue;
     const s=dn(t.s),f=dn(t.f);r.w=excl[i]||t.ms?0:Math.max(1,t.d||1);
-    const mk=markOf(t,asOf);
+    const mk=markOf(t,asOf,cal,lin);
     if(t.ms){const done=mk!=null?mk>=50:(!!t.hc&&dn(t.hc)<=asOf);r.pc=done?1:0;if(mk!=null)r.mk=1;r.pb=planAt(t,'b',asOf);r.pr=planAt(t,'c',asOf);r.st=done?'Terminada':(f!=null&&asOf>f?'Atrasada':'Pendiente');continue}
     const items=checklistOf(P,t),list=by[t.i]||[];
     r.nI=list.filter(x=>dn(x.fecha)<=asOf).length;
@@ -731,8 +745,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const uid=(p='x')=>p+Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
 const clone=o=>JSON.parse(JSON.stringify(o));
 const pc=x=>Math.round((x||0)*100)+'%';
-const pc1=x=>((x||0)*100).toFixed(1)+'%';
-const ppt=x=>{const v=(x||0)*100;return(v>0.05?'+':'')+v.toFixed(1)+' pp'};
+const pc1=x=>{const v=(x||0)*100;return(v>0&&v<0.5?v.toFixed(2):v.toFixed(1))+'%'};
+const ppt=x=>{const v=(x||0)*100,a=Math.abs(v);return(v>0.05?'+':'')+(a>0&&a<0.1?v.toFixed(2):v.toFixed(1))+' pp'};
 const stCls=s=>String(s).replace(' ','-');
 const nz=x=>(Math.round((x||0)*10)/10);
 const CID=uid('c');
@@ -958,7 +972,7 @@ function progEditBar(){
    <button class="btn sm" data-act="plink" title="Liga la fila seleccionada a la actividad anterior (fin a comienzo)">🔗 Ligar a la anterior</button><button class="btn sm" data-act="punlink" title="Quita las predecesoras de la fila seleccionada">Quitar ligas</button>
    <button class="btn sm" data-act="pup">▲ Subir</button><button class="btn sm" data-act="pdown">▼ Bajar</button><button class="btn sm" data-act="pins">+ Fila debajo</button><button class="btn sm dng" data-act="pdel">Eliminar fila</button>
    <span class="sp"></span><button class="btn sm" data-act="ppaste">Pegar filas de Excel</button></div>
-   <div class="sm mut" style="margin:4px 2px 8px">Escribe directo en la tabla, como en MS Project: <b>Enter</b> baja a la fila siguiente, <b>Tab</b> pasa a la celda de al lado y la última fila vacía crea actividades nuevas. En <b>Pred.</b> y <b>Suc.</b> escribe el N° de fila con el tipo de liga: <b>3</b> = fin a comienzo (FS), <b>5SS+2</b> = comienzo a comienzo con 2 días de retraso, <b>7FF</b> = fin a fin, <b>9SF-1</b> = comienzo a fin; las fechas se acomodan solas. En <b>Real</b> marca el avance a la fecha de corte: se refleja en la curva S y en los cortes.</div>`}
+   <div class="sm mut" style="margin:4px 2px 8px">Escribe directo en la tabla, como en MS Project: <b>Enter</b> baja a la fila siguiente, <b>Tab</b> pasa a la celda de al lado y la última fila vacía crea actividades nuevas. En <b>Pred.</b> y <b>Suc.</b> escribe el N° de fila con el tipo de liga: <b>3</b> = fin a comienzo (FS), <b>5SS+2</b> = comienzo a comienzo con 2 días de retraso, <b>7FF</b> = fin a fin, <b>9SF-1</b> = comienzo a fin; las fechas se acomodan solas. En <b>Real</b> marca el avance a la fecha de corte: se reparte en el tiempo desde el inicio programado de la actividad y alimenta solo el real acumulado de la Curva S y los cortes.</div>`}
 function viewPrograma(){
   const P=PR();if(!P.tasks.length)return emptyProgram();
   return progToolbar()+`<div class="gwrap"><div id="gscroll">${ganttHTML(P,CALC())}</div></div>
@@ -1241,10 +1255,10 @@ function viewCurva(){
      <td class="r num">${ed?`<input type="number" class="rin" min="0" step="1" data-ppeso="${esc(T[i].i)}" value="${man?cv.pesos[T[i].i]:''}" placeholder="auto" aria-label="Peso manual">`:(man?cv.pesos[T[i].i]:'—')}</td>
      <td class="r num b">${Math.round(ph.UW[k])}</td><td class="r num">${pc1(ph.tot?ph.UW[k]/ph.UW.reduce((x,y)=>x+y,0):0)}</td><td class="r num">${pc(r.pb)}</td><td class="r num b">${pc(r.pc)}</td></tr>`}).join('');
   const tr=rows.map((r,i)=>{if(i===0)return '';const pv=rows[i-1],cur=r.del<=S.asOf&&S.asOf<=r.d,canIn=ed&&r.del<=S.asOf;
-    const rin=canIn?`<input type="number" class="rin${r.man?' man':''}" min="0" max="100" step="0.1" data-preal="${sd(r.d)}" value="${r.man?(r.real*100).toFixed(1):''}" placeholder="${r.rc==null?'':(r.rc*100).toFixed(1)}" title="${r.man?'Capturado a mano. Bórralo para volver al avance calculado con las inspecciones.':'Calculado con las inspecciones. Escribe un valor para capturarlo a mano.'}" aria-label="Real acumulado (%) de la semana ${i}">`
-      :(r.real==null?'—':pc1(r.real)+(r.man?' ✎':''));
+    const rin=canIn?`<input type="number" class="rin${r.man?' man':''}" min="0" max="100" step="0.1" data-preal="${sd(r.d)}" value="${r.man?(r.real*100).toFixed(1):''}" placeholder="auto" title="${r.man?'Fijado a mano. Bórralo para volver al avance calculado con el Programa.':'Vacío: se usa el avance calculado con el Programa. Escribe un valor solo si quieres fijar a mano el real de esta semana.'}" aria-label="Ajuste manual del real acumulado (%) de la semana ${i}">`:'';
+    const rv=r.real==null?'—':pc1(r.real)+(r.man?' ✎':'');
     const phc=sh?ph.idx.map((_,k)=>`<td class="r num mut">${Math.round((r.ph[k]||0)*100)}%</td>`).join(''):'';
-    return `<tr${cur?' style="background:var(--sel)"':''}><td class="num">${i}</td><td class="num">${fmtN(r.del)}</td><td class="num b">${fmtN(r.d)}</td><td class="r num">${ppt(r.prog-pv.prog).replace(' pp','')}</td><td class="r num b">${pc1(r.prog)}</td>${S.ui.showRepr?`<td class="r num mut">${pc1(r.repr)}</td>`:''}<td class="r num b">${rin}</td><td class="r num">${r.real==null?'—':dv$(r.real-(r.pa!=null?r.pa:r.prog))}</td><td class="r num">${r.real==null||pv.real==null?'—':ppt(r.real-pv.real).replace(' pp','')}</td><td>${r.part?'<span class="pill">En curso</span> ':''}${weekOf(r.d)?'<span class="pill">Corte</span>':''}</td>${phc}</tr>`}).join('');
+    return `<tr${cur?' style="background:var(--sel)"':''}><td class="num">${i}</td><td class="num">${fmtN(r.del)}</td><td class="num b">${fmtN(r.d)}</td><td class="r num">${ppt(r.prog-pv.prog).replace(' pp','')}</td><td class="r num b">${pc1(r.prog)}</td>${S.ui.showRepr?`<td class="r num mut">${pc1(r.repr)}</td>`:''}<td class="r num b" style="color:var(--real)" title="${r.man?'Fijado a mano':'Calculado con el avance marcado en el Programa'}">${rv}</td>${ed?`<td class="r num">${rin}</td>`:''}<td class="r num">${r.real==null?'—':dv$(r.real-(r.pa!=null?r.pa:r.prog))}</td><td class="r num">${r.real==null||pv.real==null?'—':ppt(r.real-pv.real).replace(' pp','')}</td><td>${r.part?'<span class="pill">En curso</span> ':''}${weekOf(r.d)?'<span class="pill">Corte</span>':''}</td>${phc}</tr>`}).join('');
   const phh=sh?ph.idx.map(i=>`<th class="r" title="${esc(T[i].n.trim())}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${esc(T[i].n.trim().slice(0,22))}</th>`).join(''):'';
   const lvlOpts=`<option value="">Automático</option>`+[0,1,2,3,4].map(n=>`<option value="${n}"${cv.nivel!=null&&cv.nivel!==''&&+cv.nivel===n?' selected':''}>Nivel ${n+1}</option>`).join('');
   return `<div class="bar-tools"><div class="seg"><button class="${S.ui.curva==='acum'?'on':''}" data-act="cmode" data-m="acum">Acumulado</button><button class="${S.ui.curva==='sem'?'on':''}" data-act="cmode" data-m="sem">Semanal</button></div>
@@ -1261,11 +1275,12 @@ function viewCurva(){
     <tr><td>Número de cortes semanales</td><td class="r num b">${rows.length-1}</td><td class="sm mut">Sin contar el corte 0 (base, en 0 %).</td></tr>
     <tr><td>Verificación de la curva</td><td class="r b ${okC?'pos':'neg'}">${okC?'OK':'Revisar'}</td><td class="sm mut">Debe cerrar en 100 % y cubrir el fin del programa.</td></tr>
     <tr><td>Fases (para pesos y columnas)</td><td class="r">${ed?`<select data-cpar="nivel">${lvlOpts}</select>`:`<b>${cv.nivel!=null&&cv.nivel!==''?'Nivel '+(+cv.nivel+1):'Automático'}</b>`}</td><td class="sm mut">${ph.idx.length} fases.</td></tr>
+    <tr><td>Reparto del avance real</td><td class="r">${ed?`<select data-cpar="rep"><option value="lin"${cv.rep!=='dia'?' selected':''}>Lineal en el tiempo</option><option value="dia"${cv.rep==='dia'?' selected':''}>Todo a la fecha de la marca</option></select>`:`<b>${cv.rep==='dia'?'A la fecha de la marca':'Lineal en el tiempo'}</b>`}</td><td class="sm mut">Cómo se reparte entre semanas el % real marcado en el Programa: lineal, del inicio programado de cada actividad a la fecha de cada marca (como MS Project), o todo en la fecha de la marca.</td></tr>
     <tr><td>Avance real capturado</td><td class="r num b">${nMan} ${nMan===1?'semana':'semanas'}</td><td class="sm mut">${ed?`Escríbelo en la tabla de cortes. <button class="btn sm" data-act="crealclear" ${nMan?'':'disabled'}>Quitar capturas</button>`:'Capturado por Bafar.'}</td></tr></tbody></table></div></div>
    <div class="card"><h3>2. Fases y pesos</h3><div class="tw" style="max-height:330px"><table class="t"><thead><tr><th>Fase</th><th>Inicio</th><th>Fin</th><th class="r">Peso base (días)</th><th class="r">Peso manual</th><th class="r">Peso usado</th><th class="r">% del total</th><th class="r">Prog.</th><th class="r">Real</th></tr></thead><tbody>${phRows}</tbody></table></div>
     <div class="sm mut" style="padding:8px 12px">El peso base es la suma de días laborables de las actividades de la fase. Con un peso manual la fase pesa más o menos en la curva y en el avance total. ${cv.pesos&&Object.keys(cv.pesos).length&&ed?'<button class="btn sm" data-act="pesoreset">Quitar pesos manuales</button>':''}</div></div></div>
-  <div class="card" style="margin-top:14px"><h3>3. Cortes semanales</h3><div class="sm mut" style="padding:0 12px 8px">${ed?'El avance real sale solo de lo que marcas en la pestaña <b>Programa</b> (columna «Real», con la fecha de corte) y de las inspecciones liberadas: la semana en curso se actualiza al momento. Si necesitas fijar a mano el real de una semana, escríbelo en «Real acum. (%)»; vacío usa el avance del programa (se muestra en gris).':'El avance real de cada semana lo captura Bafar.'}</div>
-   <div class="tw" style="max-height:520px"><table class="t"><thead><tr><th>Sem.</th><th>Del</th><th>Al (corte)</th><th class="r">Avance sem. (pp)</th><th class="r">Prog. acum.</th>${S.ui.showRepr?'<th class="r">Reprog.</th>':''}<th class="r">Real acum. (%)</th><th class="r">Desv.</th><th class="r">Real sem. (pp)</th><th></th>${phh}</tr></thead><tbody>${tr}</tbody></table></div></div>`}
+  <div class="card" style="margin-top:14px"><h3>3. Cortes semanales</h3><div class="sm mut" style="padding:0 12px 8px">${ed?'El <b>real acumulado</b> se calcula solo con lo que marcas en la pestaña <b>Programa</b> (columna «Real», con la fecha de corte) y con las inspecciones liberadas, y se actualiza al momento. Cada actividad avanza desde su inicio programado hasta la fecha de cada marca, así que el real de las semanas anteriores se reparte según las fechas del programa y de tus cortes. Solo si quieres fijar a mano una semana, escríbela en «Ajuste manual (%)»; vacío = automático.':'El real acumulado se calcula con el avance que Bafar marca en el Programa y con las inspecciones liberadas.'}</div>
+   <div class="tw" style="max-height:520px"><table class="t"><thead><tr><th>Sem.</th><th>Del</th><th>Al (corte)</th><th class="r">Avance sem. (pp)</th><th class="r">Prog. acum.</th>${S.ui.showRepr?'<th class="r">Reprog.</th>':''}<th class="r">Real acum.</th>${ed?'<th class="r" title="Opcional: fija a mano el real de la semana. Vacío = automático">Ajuste manual (%)</th>':''}<th class="r">Desv.</th><th class="r">Real sem. (pp)</th><th></th>${phh}</tr></thead><tbody>${tr}</tbody></table></div></div>`}
 
 /* ---- CORTES ---- */
 function makeCorte(fechaStr,nota){
@@ -1702,6 +1717,7 @@ document.addEventListener('change',ev=>{
     else if(d.ppeso!=null){const ps=Object.assign({},p.curva.pesos||{}),x=parseFloat(String(el.value).replace(',','.'));if(!(x>0))delete ps[d.ppeso];else ps[d.ppeso]=x;p.curva.pesos=ps}
     else if(d.cpar==='dia'){const nw=+el.value,wdN=diaWd(nw),old=p.curva.real||{},nr={};for(const k in old){const x=dn(k);if(x==null)continue;let b=x;for(let o=-3;o<=3;o++)if(wday(x+o)===wdN){b=x+o;break}nr[sd(b)]=old[k]}if(Object.keys(nr).length)p.curva.real=nr;p.curva.dia=nw}
     else if(d.cpar==='nivel'){if(el.value==='')delete p.curva.nivel;else p.curva.nivel=+el.value}
+    else if(d.cpar==='rep'){if(el.value==='dia')p.curva.rep='dia';else delete p.curva.rep}
     saveMeta(p);render();return}
   if(d.tf!=null){editTask(S.drawer,d.tf,el.type==='checkbox'?el.checked:el.value);return}
   if(d.ed){let v=el.value;if(d.ed==='s'||d.ed==='f'){const x=parseDateCell(v,'dmy');if(x==null){toast('Fecha no válida. Escribe por ejemplo 15/03/2027.','err');render();return}v=sd(x)}editTask(d.id,d.ed,v);return}
