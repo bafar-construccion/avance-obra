@@ -194,6 +194,7 @@ details.dz summary{cursor:pointer;font-weight:600;color:var(--late)}
 
 body.edit .gc.d{width:66px}body.edit .gc.dt{width:104px}body.edit .gc.nm{width:330px}
 .gc.pd{width:84px;font-size:12px;color:var(--ink2)}body.edit .gc.pd{width:112px}
+body.edit .gc.p.rl{width:72px;padding:0 3px}.gc.p.rl .rin{width:64px;text-align:right}
 body.edit .gc.id{cursor:pointer;user-select:none}.grow.sel .gc.id{background:var(--accl);color:var(--accink)}
 .gc.nm .nin{flex:1;min-width:0;border:1px solid transparent;background:transparent;padding:2px 4px}.gc.nm .nin:focus{border-color:var(--hv);background:var(--panel)}
 .gc.nm .gopen{margin-left:2px;color:var(--mut);cursor:pointer;flex:none;padding:0 5px;font-weight:700}.gc.nm .gopen:hover{color:var(--acc)}
@@ -204,7 +205,7 @@ body.edit .gc.id{cursor:pointer;user-select:none}.grow.sel .gc.id{background:var
 .nw{white-space:nowrap}
 
 @media(max-width:760px){
- .gc.id,.gc.p.pr{display:none}.gc.pd{display:none}body.edit .gc.pd,body.edit .gc.id{display:block}.gc.nm{width:158px}
+ .gc.id,.gc.p.pr{display:none}.gc.pd,.gc.sc{display:none}body.edit .gc.pd,body.edit .gc.id{display:block}.gc.nm{width:158px}
  .top{padding:6px 12px;gap:8px}.brand b{font-size:16px}.brand span{display:none}
  .bar-tools.prog{flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}.bar-tools.prog>*{flex:none}
  #gq{width:150px!important}
@@ -555,6 +556,7 @@ function checkState(items,list,asOf){
   items.forEach(it=>{const r=map[it.id];if(r==='SI')si++;else if(r==='NO')no++;else if(r==='NA')na++;else pend++});
   const apl=items.length-na,lib=items.length>0&&no===0&&pend===0;
   return{si,no,na,pend,apl,lib,n:items.length,pc:items.length===0?0:lib?1:(apl>0?si/apl:0),map}}
+function markOf(t,asOf){const h=t.rh;if(!h||!h.length)return null;let v=null;for(const m of h){const d=dn(m[0]);if(d!=null&&d<=asOf)v=m[1]}return v}
 function calcAll(P,insps,asOf){
   const T=P.tasks,cal=mkCal(P.cfg),{par,kids}=buildTree(T),n=T.length;
   const by={};insps.forEach(i=>{(by[i.tid]=by[i.tid]||[]).push(i)});
@@ -567,10 +569,12 @@ function calcAll(P,insps,asOf){
     const r=R[i]={i,leaf,ms:!!t.ms,excl:excl[i],w:0,pc:0,pb:0,pr:0,st:'Pendiente',cs:null,nI:0,pm:0};
     if(!leaf)continue;
     const s=dn(t.s),f=dn(t.f);r.w=excl[i]||t.ms?0:Math.max(1,t.d||1);
-    if(t.ms){const done=!!t.hc&&dn(t.hc)<=asOf;r.pc=done?1:0;r.pb=planAt(t,'b',asOf);r.pr=planAt(t,'c',asOf);r.st=done?'Terminada':(f!=null&&asOf>f?'Atrasada':'Pendiente');continue}
+    const mk=markOf(t,asOf);
+    if(t.ms){const done=mk!=null?mk>=50:(!!t.hc&&dn(t.hc)<=asOf);r.pc=done?1:0;if(mk!=null)r.mk=1;r.pb=planAt(t,'b',asOf);r.pr=planAt(t,'c',asOf);r.st=done?'Terminada':(f!=null&&asOf>f?'Atrasada':'Pendiente');continue}
     const items=checklistOf(P,t),list=by[t.i]||[];
     r.nI=list.filter(x=>dn(x.fecha)<=asOf).length;
-    if(items.length){const cs=checkState(items,list,asOf);r.cs=cs;r.pc=cs.pc;r.lib=cs.lib}
+    if(mk!=null){r.pc=Math.min(1,Math.max(0,mk/100));r.lib=r.pc>=1;r.mk=1}
+    else if(items.length){const cs=checkState(items,list,asOf);r.cs=cs;r.pc=cs.pc;r.lib=cs.lib}
     else{r.pc=Math.min(1,Math.max(0,(t.pm||0)/100));r.lib=r.pc>=1;r.pm=1}
     r.pb=planAt(t,'b',asOf);r.pr=planAt(t,'c',asOf);
     r.st=r.lib?'Terminada':(f!=null&&asOf>f?'Atrasada':(r.pc>0||r.nI>0?'En proceso':'Pendiente'))}
@@ -636,18 +640,23 @@ function curveS(P,insps,asOf){
     return{prog:UWs?a/UWs:0,repr:UWs?b/UWs:0,ph}};
   const man=Object.keys(cv.real||{}).map(k=>[dn(k),cv.real[k]]).filter(x=>x[0]!=null);
   const manAt=e=>{for(const[k,v]of man)if(k>e-7&&k<=e)return v;return null};
+  const c0=calcAll(P,insps,asOf).tot;let partDone=false;
   const rows=pts.map(d=>{const m=manAt(d);
-    if(d<=asOf){const c=calcAll(P,insps,d);const t=c.tot;return{d,del:d-6,prog:t.prog,repr:t.repr,rc:t.real,real:m!=null?m:t.real,man:m!=null,ph:PH.idx.map(i=>c.R[i].pb)}}
-    const c=light(d);return{d,del:d-6,prog:c.prog,repr:c.repr,rc:null,real:m,man:m!=null,ph:c.ph}});
-  const c0=calcAll(P,insps,asOf).tot,mAs=manAt(weekEnd(asOf,wd)),cur=Object.assign({},c0,{real:mAs!=null?mAs:c0.real,rc:c0.real,man:mAs!=null});
+    if(d<=asOf){const c=calcAll(P,insps,d);const t=c.tot;return{d,del:d-6,dr:d,pa:t.prog,prog:t.prog,repr:t.repr,rc:t.real,real:m!=null?m:t.real,man:m!=null,ph:PH.idx.map(i=>c.R[i].pb)}}
+    const c=light(d);
+    if(!partDone&&d-7<asOf){partDone=true; // semana en curso: avance real a la fecha de corte contra lo programado a esa fecha
+      return{d,del:d-6,dr:asOf,pa:c0.prog,part:true,prog:c.prog,repr:c.repr,rc:c0.real,real:m!=null?m:c0.real,man:m!=null,ph:c.ph}}
+    return{d,del:d-6,dr:d,pa:c.prog,prog:c.prog,repr:c.repr,rc:null,real:m,man:m!=null,ph:c.ph}});
+  const mAs=manAt(weekEnd(asOf,wd)),cur=Object.assign({},c0,{real:mAs!=null?mAs:c0.real,rc:c0.real,man:mAs!=null});
   return{m0:e0-7,rows,asOf,cur,range:rg,dia,wd,phases:{idx:PH.idx,W:PH.W,UW:PH.UW,tot:PH.tot}}}
 
 /* ---- predecesoras por número de fila (como en MS Project): se guardan por ID y se muestran y capturan por N° de fila ---- */
 const rowMap=T=>{const m=new Map();T.forEach((t,i)=>m.set(t.i,i+1));return m};
-const PT_ES={FS:'',SS:'CC',FF:'FF',SF:'CF'},PT_IN={FS:'FS',FC:'FS',SS:'SS',CC:'SS',FF:'FF',SF:'SF',CF:'SF'};
+const PT_ES={FS:'',SS:'SS',FF:'FF',SF:'SF'},PT_IN={FS:'FS',FC:'FS',SS:'SS',CC:'SS',FF:'FF',SF:'SF',CF:'SF'};
+const lagStr=l=>l.lag?(l.lag>0?'+':'-')+Math.abs(l.lag)+(l.u==='w'?'sem':l.u==='%'?'%':''):'';
 function predDisp(T,pstr,rm){const m=rm||rowMap(T);
-  return parsePred(pstr).map(l=>{const r=m.get(l.id);if(!r)return '';let o=String(r)+(PT_ES[l.t]||'');
-    if(l.lag)o+=(l.lag>0?'+':'-')+Math.abs(l.lag)+(l.u==='w'?'sem':l.u==='%'?'%':'');return o}).filter(Boolean).join('; ')}
+  return parsePred(pstr).map(l=>{const r=m.get(l.id);if(!r)return '';return String(r)+(PT_ES[l.t]||'')+lagStr(l)}).filter(Boolean).join('; ')}
+const linkStr=l=>l.id+((l.t!=='FS'||/(FS|SS|FF|SF|FC|CC|CF)$/i.test(l.id))?l.t:'')+(l.lag?(l.lag>0?'+':'-')+Math.abs(l.lag)+(l.u==='w'?'w':l.u==='%'?'%':''):'');
 function dependsOn(T,a,b){const idx={};T.forEach((t,i)=>idx[t.i]=i);const seen=new Set(),st=[a];
   while(st.length){const x=st.pop();if(x===b)return true;if(seen.has(x))continue;seen.add(x);const t=T[idx[x]];if(t)parsePred(t.p).forEach(l=>st.push(l.id))}return false}
 function predParse(T,input,selfId){
@@ -656,7 +665,7 @@ function predParse(T,input,selfId){
   const out=[];
   for(const x of parts){
     const m=/^(\d+)\s*(FS|FC|SS|CC|FF|SF|CF)?\s*(?:([+-])\s*(\d+(?:[.,]\d+)?)\s*(d|dia|dias|día|días|w|sem|semana|semanas|%)?)?$/i.exec(x);
-    if(!m)return{err:'No entendí «'+x+'». Escribe números de fila, por ejemplo: 3, 5CC+2 (CC = comienzo a comienzo, +2 = 2 días de retraso).'};
+    if(!m)return{err:'No entendí «'+x+'». Escribe números de fila, por ejemplo: 3, 5SS+2 (SS = comienzo a comienzo, +2 = 2 días de retraso). Tipos: FS fin a comienzo (el normal), SS comienzo a comienzo, FF fin a fin, SF comienzo a fin.'};
     const r=+m[1];if(r<1||r>T.length)return{err:'La fila '+r+' no existe (el programa tiene '+T.length+' filas).'};
     const t=T[r-1];if(t.i===selfId)return{err:'Una actividad no puede depender de sí misma.'};
     if(dependsOn(T,t.i,selfId))return{err:'La liga con la fila '+r+' crea un ciclo: esa actividad ya depende de esta.'};
@@ -675,33 +684,36 @@ function constraintFor(t,pt,link,cal){
   if(link.t==='FF')return{f:addW(pf,lag,cal)};
   if(link.t==='SF')return{f:addW(ps,lag,cal)};return null}
 function cascadeFrom(P,changes){
-  // changes: [{i, os, of}] fechas (dn) ANTES del cambio. Solo empuja sucesoras; conserva el desfase que traía el archivo.
+  // changes: [{i, os, of}] fechas (dn) ANTES del cambio. Las sucesoras se recorren igual que su predecesora (hacia adelante o hacia atrás),
+  // conservando la holgura que ya traían, como en MS Project con programación automática.
   const T=P.tasks,cal=mkCal(P.cfg),idx={};T.forEach((t,i)=>idx[t.i]=i);
   const {kids}=buildTree(T);const succ={};
   T.forEach((t,i)=>{if(kids[i].length)return;parsePred(t.p).forEach(l=>{if(idx[l.id]!=null)(succ[l.id]=succ[l.id]||[]).push(i)})});
   const old={};const q=[];changes.forEach(c=>{old[c.i]={s:c.os,f:c.of};q.push(c.i)});
   const moved=new Set();let guard=0;
-  while(q.length&&guard++<20000){const id=q.shift();const pi=idx[id];const pOld=Object.assign({},T[pi],{s:sd(old[id].s),f:sd(old[id].f)});
-    for(const si of(succ[id]||[])){const t=T[si];let ns=null,nf=null;
+  while(q.length&&guard++<40000){const id=q.shift();
+    for(const si of(succ[id]||[])){const t=T[si];let cs=null,cf=null;
       const s0=dn(t.s),f0=dn(t.f);
-      for(const l of parsePred(t.p)){if(l.id!==id&&!(old[l.id]))continue;const pj=idx[l.id];if(pj==null)continue;
-        const pn=T[pj];const po=l.id===id?pOld:Object.assign({},pn,{s:sd(old[l.id].s),f:sd(old[l.id].f)});
+      for(const l of parsePred(t.p)){const pj=idx[l.id];if(pj==null)continue;
+        const pn=T[pj],po=old[l.id]?Object.assign({},pn,{s:sd(old[l.id].s),f:sd(old[l.id].f)}):pn;
         const c1=constraintFor(t,pn,l,cal),c0=constraintFor(t,po,l,cal);if(!c1||!c0)continue;
-        if(c1.s!=null){const e=c1.s+Math.min(0,s0-c0.s);if(ns==null||e>ns)ns=e}
-        if(c1.f!=null){const e=c1.f+Math.min(0,f0-c0.f);if(nf==null||e>nf)nf=e}}
+        if(c1.s!=null&&c0.s!=null){const e=c1.s+(s0-c0.s);if(cs==null||e>cs)cs=e}
+        if(c1.f!=null&&c0.f!=null){const e=c1.f+(f0-c0.f);if(cf==null||e>cf)cf=e}}
       let s=s0,f=f0,ch=false;
-      if(ns!=null&&s<ns){s=ns;f=finishFrom(s,t.d,cal);ch=true}
-      if(nf!=null&&f<nf){f=nf;s=startFrom(f,t.d,cal);ch=true}
-      if(ch){if(!old[t.i])old[t.i]={s:s0,f:f0};t.s=sd(s);t.f=sd(f);moved.add(t.i);q.push(t.i)}}}
+      if(cs!=null&&cs!==s0){s=cs;f=finishFrom(s,t.d,cal);ch=true}
+      if(cf!=null&&(!ch||f<cf)&&cf!==f){f=cf;s=startFrom(f,t.d,cal);ch=true}
+      if(ch&&(s!==s0||f!==f0)){if(!old[t.i])old[t.i]={s:s0,f:f0};t.s=sd(s);t.f=sd(f);moved.add(t.i);q.push(t.i)}}}
   return[...moved]}
-function enforceTask(P,id){ // aplica las ligas de una tarea (p.ej. tras editar predecesoras)
+function enforceTask(P,id){ // acomoda una actividad exactamente según sus ligas (al capturarlas o cambiarlas)
   const T=P.tasks,cal=mkCal(P.cfg),idx={};T.forEach((t,i)=>idx[t.i]=i);const t=T[idx[id]];if(!t)return[];
   let ns=null,nf=null;
   for(const l of parsePred(t.p)){const pj=idx[l.id];if(pj==null)continue;const c=constraintFor(t,T[pj],l,cal);if(!c)continue;if(c.s!=null&&(ns==null||c.s>ns))ns=c.s;if(c.f!=null&&(nf==null||c.f>nf))nf=c.f}
-  const os=dn(t.s),of=dn(t.f);let s=os,f=of,ch=false;
-  if(ns!=null&&s<ns){s=ns;f=finishFrom(s,t.d,cal);ch=true}
-  if(nf!=null&&f<nf){f=nf;s=startFrom(f,t.d,cal);ch=true}
-  if(ch){t.s=sd(s);t.f=sd(f);return[{i:id,os,of}]}return[]}
+  const os=dn(t.s),of=dn(t.f);let s=null;
+  if(ns!=null)s=ns;
+  if(nf!=null){const s2=startFrom(nf,t.d,cal);if(s==null||s2>s)s=s2}
+  if(s==null)return[];
+  const f=finishFrom(s,t.d,cal);
+  if(s!==os||f!==of){t.s=sd(s);t.f=sd(f);return[{i:id,os,of}]}return[]}
 function fixSummaries(P){ // los resumenes se expanden para cubrir a sus hijos
   const T=P.tasks,{kids}=buildTree(T);
   for(let i=T.length-1;i>=0;i--){if(!kids[i].length)continue;let a=dn(T[i].s),b=dn(T[i].f);
@@ -709,7 +721,7 @@ function fixSummaries(P){ // los resumenes se expanden para cubrir a sus hijos
     if(a!=null)T[i].s=sd(a);if(b!=null)T[i].f=sd(b)}}
 function shiftAll(P,days){P.tasks.forEach(t=>{for(const k of['s','f','bs','bf']){const v=dn(t[k]);if(v!=null)t[k]=sd(v+days)}})}
 
-if(false)module.exports={buildPhases,curvaCfg,defaultDia,diaWd,weekEnd,manualRealAt,rowMap,predDisp,predParse,dependsOn,newTid,idHierarchy,mergePrograms,dn,sd,wday,mondayN,mkCal,isW,nextW,addW,finishFrom,startFrom,workBetween,parseDateCell,detectOrder,parseDur,parsePred,matchTpl,matchTplCtx,inferLevels,rowsToTasks,finishTasks,buildTree,calcAll,curveS,cascadeFrom,enforceTask,fixSummaries,shiftAll,mkItems,checkState,checklistOf,fmtN,strip,projectRange,fixLevels,subtreeEnd}
+if(false)module.exports={markOf,buildPhases,curvaCfg,defaultDia,diaWd,weekEnd,manualRealAt,rowMap,predDisp,predParse,dependsOn,newTid,idHierarchy,mergePrograms,dn,sd,wday,mondayN,mkCal,isW,nextW,addW,finishFrom,startFrom,workBetween,parseDateCell,detectOrder,parseDur,parsePred,matchTpl,matchTplCtx,inferLevels,rowsToTasks,finishTasks,buildTree,calcAll,curveS,cascadeFrom,enforceTask,fixSummaries,shiftAll,mkItems,checkState,checklistOf,fmtN,strip,projectRange,fixLevels,subtreeEnd}
 
 'use strict';
 /* ================= APP · utilidades y estado ================= */
@@ -734,7 +746,7 @@ const TABS=[['resumen','Resumen'],['programa','Programa'],['insp','Inspecciones'
 
 const S={mode:'local',canWrite:true,canProg:true,ready:false,sync:'idle',proy:[],prog:{},nch:{},dirty:{},insps:[],cortes:[],libs:{},cur:null,tab:'resumen',
   asOf:todayN(),v:0,drawer:null,pending:false,me:{name:'',id:null},
-  ui:{zoom:'sem',nivel:99,q:'',fst:'',edit:false,casc:true,collapsed:{},curva:'acum',showRepr:true,gl:0,iq:'',idec:'',ifirma:'',cdet:null}};
+  ui:{zoom:'sem',nivel:99,q:'',fst:'',edit:true,casc:true,collapsed:{},curva:'acum',showRepr:true,gl:0,iq:'',idec:'',ifirma:'',cdet:null}};
 let db=null,assets=null,userCap=null,dl=null,sampleFn=null;
 const LSK='avance-obra-v2';
 const touch=()=>{S.v++};
@@ -841,7 +853,7 @@ function renderChrome(){
   $('#asof').value=sd(S.asOf);$('#btnToday').classList.toggle('hide',S.asOf===todayN());
   const p=curMeta();$('#brand-sub').textContent=p?(p.cliente||''):'';
   $('#tabs').innerHTML=TABS.filter(([k])=>k!=='proyecto'||AUTH.admin).map(([k,l])=>`<button class="tab ${S.tab===k?'on':''}" data-act="tab" data-k="${k}" role="tab">${l}${k==='insp'&&p?`<small>${projInsps().length}</small>`:''}${k==='cortes'&&p?`<small>${projCortes().length}</small>`:''}</button>`).join('');
-  document.body.classList.toggle('edit',!!(S.ui.edit&&S.tab==='programa'));
+  document.body.classList.toggle('edit',!!(S.ui.edit&&S.canProg&&S.tab==='programa'));
   document.body.classList.toggle('ro',!S.canWrite);document.body.classList.toggle('nop',!S.canProg);document.body.classList.toggle('isadm',!!AUTH.admin);
   setSync(S.sync);renderAcct()}
 function render(){
@@ -932,7 +944,7 @@ function progToolbar(){
    <div class="seg" role="group" aria-label="Nivel">${[1,2,3,4,5].map(n=>`<button class="${u.nivel===n?'on':''}" data-act="gnivel" data-n="${n}" title="Mostrar hasta el nivel ${n}">${n}</button>`).join('')}<button class="${u.nivel>=99?'on':''}" data-act="gnivel" data-n="99">Todo</button></div>
    <div class="seg" role="group" aria-label="Escala"><button class="${z==='dia'?'on':''}" data-act="gzoom" data-z="dia">Día</button><button class="${z==='sem'?'on':''}" data-act="gzoom" data-z="sem">Semana</button><button class="${z==='mes'?'on':''}" data-act="gzoom" data-z="mes">Mes</button></div>
    <span class="sp"></span>
-   <button class="btn pw ${u.edit?'on':''}" data-act="gedit" title="Permite editar fechas en la tabla y arrastrar las barras">${u.edit?'Terminar edición':'Editar tiempos'}</button>
+   <button class="btn pw ${u.edit?'on':''}" data-act="gedit" title="Con la edición activa escribes directo en la tabla y arrastras las barras. Apágala para consultar sin riesgo de mover algo.">${u.edit?'Bloquear edición':'Activar edición'}</button>
    <label class="wl sm pw" title="Al mover una actividad, empuja a las que dependen de ella"><input type="checkbox" data-act="gcasc" ${u.casc?'checked':''}> Mover sucesoras</label>
    <button class="btn pw" data-act="addtask">+ Actividad</button>
    <button class="btn pw" data-act="shift">Recorrer programa</button>
@@ -943,9 +955,10 @@ function progEditBar(){
   if(!(S.ui.edit&&S.canProg))return '';const k=selIdx();
   return `<div class="bar-tools prog pw" style="margin-top:6px"><span class="sm mut">${k>=0?`Fila <b>${k+1}</b> seleccionada`:'Toca el N° de una fila para seleccionarla'}</span>
    <button class="btn sm" data-act="pout" title="Subir de nivel (quitar sangría)">◀ Nivel</button><button class="btn sm" data-act="pind" title="Bajar de nivel (sangría)">Nivel ▶</button>
+   <button class="btn sm" data-act="plink" title="Liga la fila seleccionada a la actividad anterior (fin a comienzo)">🔗 Ligar a la anterior</button><button class="btn sm" data-act="punlink" title="Quita las predecesoras de la fila seleccionada">Quitar ligas</button>
    <button class="btn sm" data-act="pup">▲ Subir</button><button class="btn sm" data-act="pdown">▼ Bajar</button><button class="btn sm" data-act="pins">+ Fila debajo</button><button class="btn sm dng" data-act="pdel">Eliminar fila</button>
    <span class="sp"></span><button class="btn sm" data-act="ppaste">Pegar filas de Excel</button></div>
-   <div class="sm mut" style="margin:4px 2px 8px">Escribe directo en la tabla, como en MS Project: <b>Enter</b> baja a la fila siguiente, <b>Tab</b> pasa a la celda de al lado y la última fila vacía crea actividades nuevas. En <b>Pred.</b> escribe el N° de fila (3, 5CC+2 = comienzo a comienzo con 2 días de retraso).</div>`}
+   <div class="sm mut" style="margin:4px 2px 8px">Escribe directo en la tabla, como en MS Project: <b>Enter</b> baja a la fila siguiente, <b>Tab</b> pasa a la celda de al lado y la última fila vacía crea actividades nuevas. En <b>Pred.</b> y <b>Suc.</b> escribe el N° de fila con el tipo de liga: <b>3</b> = fin a comienzo (FS), <b>5SS+2</b> = comienzo a comienzo con 2 días de retraso, <b>7FF</b> = fin a fin, <b>9SF-1</b> = comienzo a fin; las fechas se acomodan solas. En <b>Real</b> marca el avance a la fecha de corte: se refleja en la curva S y en los cortes.</div>`}
 function viewPrograma(){
   const P=PR();if(!P.tasks.length)return emptyProgram();
   return progToolbar()+`<div class="gwrap"><div id="gscroll">${ganttHTML(P,CALC())}</div></div>
@@ -968,7 +981,7 @@ function ganttHead(g){
     const w=(end-d+1)*dw;mo+=`<div style="width:${w}px">${w>=44?MESES[m]+' '+String(y).slice(2):''}</div>`;d=end+1}
   if(S.ui.zoom==='dia'){for(let d=g.t0;d<=g.t1;d++){const wd=wday(d);wk+=`<div style="width:${dw}px;text-align:center;padding:3px 0;${wd===0?'background:var(--pendbg)':''}">${new Date(d*DAY).getUTCDate()}</div>`}}
   else{for(let d=g.t0;d<=g.t1;d+=7){const w=Math.min(7,g.t1-d+1)*dw;wk+=`<div style="width:${w}px">${w>=34?new Date(d*DAY).getUTCDate():''}</div>`}}
-  return `<div class="ghead"><div class="gl"><span class="gc id" title="Número de fila: úsalo para ligar predecesoras">N°</span><span class="gc nm">Actividad</span><span class="gc d">Dur.</span><span class="gc dt">Inicio</span><span class="gc dt">Fin</span><span class="gc pd" title="Predecesoras: número de fila, p. ej. 3, 5CC+2">Pred.</span><span class="gc p pr" title="Programado a la fecha de corte">Prog.</span><span class="gc p">Real</span></div><div class="gt" style="width:${g.TW}px"><div class="mrow">${mo}</div><div class="wrow">${wk}</div></div></div>`}
+  return `<div class="ghead"><div class="gl"><span class="gc id" title="Número de fila: úsalo para ligar predecesoras">N°</span><span class="gc nm">Actividad</span><span class="gc d">Dur.</span><span class="gc dt">Inicio</span><span class="gc dt">Fin</span><span class="gc pd" title="Predecesoras: número de fila, p. ej. 3, 5SS+2 (FS fin a comienzo, SS comienzo a comienzo, FF fin a fin, SF comienzo a fin)">Pred.</span><span class="gc pd sc" title="Sucesoras: filas que dependen de esta, p. ej. 8, 9SS">Suc.</span><span class="gc p pr" title="Programado a la fecha de corte">Prog.</span><span class="gc p rl" title="Avance real a la fecha de corte: escríbelo aquí">Real</span></div><div class="gt" style="width:${g.TW}px"><div class="mrow">${mo}</div><div class="wrow">${wk}</div></div></div>`}
 const GROW=30,GVIRT=300;
 /* programas grandes: solo se dibujan las filas que se ven (más un margen), como MS Project */
 function gWindow(n){if(n<=GVIRT)return null;const sc=document.getElementById('gscroll'),top=sc?sc.scrollTop:0,vh=sc&&sc.clientHeight?sc.clientHeight:700,first=Math.max(0,Math.floor((top-44)/GROW)),cnt=Math.ceil(vh/GROW)+2,B=45;
@@ -977,7 +990,7 @@ function ganttWin(P,C,vis,w){
   if(!w)return ganttRows(P,C,vis,0,vis.length);
   return(w.a>0?`<div class="gsp" style="height:${w.a*GROW}px"></div>`:'')+ganttRows(P,C,vis,w.a,w.b)+(w.b<vis.length?`<div class="gsp" style="height:${(vis.length-w.b)*GROW}px"></div>`:'')}
 function ganttRows(P,C,vis,wa,wb){
-  const T=P.tasks,g=ganttGeom(P),{t0,dw,TW}=g,edit=S.ui.edit&&S.canProg,rm=rowMap(T);
+  const T=P.tasks,g=ganttGeom(P),{t0,dw,TW}=g,edit=S.ui.edit&&S.canProg,rm=rowMap(T),sm=succMapOf(P);
   return vis.slice(wa,wb).map(i=>{
     const t=T[i],r=C.R[i],sum=!r.leaf,s=dn(t.s),f=dn(t.f),col=!!S.ui.collapsed[P.id+':'+t.i];
     const dis=(r.excl||r.pc>=1||r.st==='Terminada')?'':(r.pc<r.pb-0.05?'neg':'');
@@ -987,7 +1000,9 @@ function ganttRows(P,C,vis,wa,wb){
     const dcell=edit&&!sum?`<input type="number" min="0" step="1" value="${nz(t.d)}" data-ed="d" data-id="${esc(t.i)}" aria-label="Duración (días laborables)">`:(t.ms?'◆':(sum?Math.round(t.d):nz(t.d)));
     const scell=edit&&!sum?ei('s',dmy(s),'Inicio','dd/mm/aaaa'):fmtN(s);
     const fcell=edit&&!sum&&!t.ms?ei('f',dmy(f),'Fin','dd/mm/aaaa'):fmtN(f);
-    const pdisp=predDisp(T,t.p,rm),pcell=edit&&!sum?ei('p',pdisp,'Predecesoras','Ej. 3, 5CC+2'):esc(pdisp);
+    const pdisp=predDisp(T,t.p,rm),pcell=edit&&!sum?ei('p',pdisp,'Predecesoras','Ej. 3, 5SS+2'):esc(pdisp);
+    const sdisp=succDisp(sm.get(t.i)),sucell=edit&&!sum?ei('sc',sdisp,'Sucesoras','Ej. 8, 9SS'):esc(sdisp);
+    const rcell=edit&&!sum?`<input type="number" class="rin${r.mk?' man':''}" min="0" max="100" step="5" value="${Math.round(r.pc*1000)/10}" data-ed="pr" data-id="${esc(t.i)}" aria-label="Avance real (%)" title="Avance real al ${fmtN(S.asOf)} (fecha de corte). Escríbelo aquí y se refleja en la curva S y en los cortes.">`:(t.ms?'':pc(r.pc));
     const ncell=edit?`<span class="ind" style="width:${t.l*13}px;flex:none"></span>${tg}<input type="text" class="nin" value="${esc(t.n.trim())}" data-ed="n" data-id="${esc(t.i)}" aria-label="Actividad" autocomplete="off"><span class="gopen" data-act="opent" data-id="${esc(t.i)}" title="Abrir el detalle de la actividad">⋯</span>`
       :`<span class="ind" style="width:${t.l*13}px;flex:none"></span>${tg}<span class="tx">${esc(t.n.trim())}</span>${r.excl?'<span class="x" title="Excluida del avance físico">excl.</span>':''}`;
     const tip=esc(`${t.n.trim()}\nPlan: ${fmtN(s)} – ${fmtN(f)}${t.bs&&(t.bs!==t.s||t.bf!==t.f)?`\nLínea base: ${fmtN(dn(t.bs))} – ${fmtN(dn(t.bf))}`:''}\nAvance real ${pc(r.pc)} · programado ${pc(r.pb)}`);
@@ -999,7 +1014,7 @@ function ganttRows(P,C,vis,wa,wb){
       else{const w=Math.max(3,(f-s+1)*dw);
         bar+=`<div class="bar ${sum?'sm2':stCls(r.st)} ${r.excl&&!sum?'excl':''}" style="left:${(s-t0)*dw}px;width:${w}px" title="${tip}" data-drag="move" data-id="${esc(t.i)}"><div class="bf" style="width:${Math.min(100,r.pc*100)}%"></div>${!sum?'<div class="rz" data-drag="size" data-id="'+esc(t.i)+'"></div>':''}</div>`;
         if(dw>=5&&r.pc>0&&!sum)bar+=`<div class="bl" style="left:${(s-t0)*dw+w+5}px">${pc(r.pc)}</div>`}}
-    return `<div class="grow ${sum?'sum':''} ${r.excl?'ex':''} ${(S.drawer===t.i||S.sel===t.i)?'sel':''}" data-row="${esc(t.i)}"><div class="gl"><span class="gc id" ${edit?`data-act="prow" data-id="${esc(t.i)}"`:''} title="Fila ${i+1} · ID ${esc(t.i)}${edit?' · clic para seleccionar':''}">${i+1}</span><span class="gc nm" ${edit?'':`data-act="opent" data-id="${esc(t.i)}"`} title="${tip}">${ncell}</span><span class="gc d num">${dcell}</span><span class="gc dt num">${scell}</span><span class="gc dt num">${fcell}</span><span class="gc pd" title="${esc(t.p||'')}">${pcell}</span><span class="gc p pr num">${t.ms?'':pc(r.pb)}</span><span class="gc p num b ${dis}">${t.ms?'':pc(r.pc)}</span></div><div class="gt" style="width:${TW}px;background-image:repeating-linear-gradient(to right,var(--line2) 0 1px,transparent 1px ${7*dw}px)">${bar}</div></div>`}).join('')}
+    return `<div class="grow ${sum?'sum':''} ${r.excl?'ex':''} ${(S.drawer===t.i||S.sel===t.i)?'sel':''}" data-row="${esc(t.i)}"><div class="gl"><span class="gc id" ${edit?`data-act="prow" data-id="${esc(t.i)}"`:''} title="Fila ${i+1} · ID ${esc(t.i)}${edit?' · clic para seleccionar':''}">${i+1}</span><span class="gc nm" ${edit?'':`data-act="opent" data-id="${esc(t.i)}"`} title="${tip}">${ncell}</span><span class="gc d num">${dcell}</span><span class="gc dt num">${scell}</span><span class="gc dt num">${fcell}</span><span class="gc pd" title="${esc(t.p||'')}">${pcell}</span><span class="gc pd sc">${sucell}</span><span class="gc p pr num">${t.ms?'':pc(r.pb)}</span><span class="gc p rl num b ${dis}">${rcell}</span></div><div class="gt" style="width:${TW}px;background-image:repeating-linear-gradient(to right,var(--line2) 0 1px,transparent 1px ${7*dw}px)">${bar}</div></div>`}).join('')}
 function ganttHTML(P,C){
   const g=ganttGeom(P),{t0,dw,TW}=g,vis=visibleRows(P,C),edit=S.ui.edit&&S.canProg,w=gWindow(vis.length);
   S.gvis=vis;S.gw=w?{a:w.a,b:w.b,n:vis.length}:null;
@@ -1059,7 +1074,7 @@ function drawerHTML(P,i){
   const map=r.cs?r.cs.map:{};
   const tplOpts=`<option value="">— Sin checklist (avance manual) —</option>`+tplOptGroups(P,(!t.cl&&t.tp)||'');
   const sched=sum?`<div class="fg"><label>Inicio<input type="text" value="${fmtN(dn(t.s))}" disabled></label><label>Fin<input type="text" value="${fmtN(dn(t.f))}" disabled></label><div class="full sm mut">Las fechas de un grupo se ajustan solas a las de sus actividades.</div></div>`
-   :`<div class="fg"><label>Inicio<input type="date" value="${t.s}" data-tf="s" ${ro}></label><label>${t.ms?'Fecha del hito':'Duración (días laborables)'}<input type="number" min="0" step="1" value="${nz(t.d)}" data-tf="d" ${ro}></label><label>Fin<input type="date" value="${t.f}" data-tf="f" ${ro} ${t.ms?'disabled':''}></label><label>Responsable<input type="text" value="${esc(t.r||'')}" data-tf="r" placeholder="Contratista o cuadrilla" ${ro}></label><label class="full">Predecesoras (N° de fila)<input type="text" value="${esc(predDisp(T,t.p))}" data-tf="p" placeholder="Ej. 3, 5CC+2" ${ro}></label><div class="full sm mut">Línea base: ${fmtN(dn(t.bs))} – ${fmtN(dn(t.bf))} ${t.bs!==t.s||t.bf!==t.f?'<button class="btn sm w" data-act="tbase" style="margin-left:6px">Igualar a fechas actuales</button>':''}</div></div>`;
+   :`<div class="fg"><label>Inicio<input type="date" value="${t.s}" data-tf="s" ${ro}></label><label>${t.ms?'Fecha del hito':'Duración (días laborables)'}<input type="number" min="0" step="1" value="${nz(t.d)}" data-tf="d" ${ro}></label><label>Fin<input type="date" value="${t.f}" data-tf="f" ${ro} ${t.ms?'disabled':''}></label><label>Responsable<input type="text" value="${esc(t.r||'')}" data-tf="r" placeholder="Contratista o cuadrilla" ${ro}></label><label class="full">Predecesoras (N° de fila)<input type="text" value="${esc(predDisp(T,t.p))}" data-tf="p" placeholder="Ej. 3, 5SS+2" ${ro}></label><div class="full sm mut">Línea base: ${fmtN(dn(t.bs))} – ${fmtN(dn(t.bf))} ${t.bs!==t.s||t.bf!==t.f?'<button class="btn sm w" data-act="tbase" style="margin-left:6px">Igualar a fechas actuales</button>':''}</div></div>`;
   const prog=`<div class="fg"><div><div class="sm mut">Real</div><div class="b" style="font-size:22px">${pc(r.pc)}</div></div><div><div class="sm mut">Programado a ${fmtN(S.asOf)}</div><div class="b" style="font-size:22px">${pc(r.pb)}</div></div></div>`;
   const cl=sum?'':t.ms?`<label class="f" style="display:flex;flex-direction:column;gap:3px;font-size:12px">Hito cumplido el<input type="date" value="${t.hc||''}" data-tf="hc" ${ro}></label><div class="sm mut" style="margin-top:6px">Déjalo vacío si aún no se cumple.</div>`
    :`<div class="f"><label>Checklist de liberación<select data-tf="tp" ${ro}>${tplOpts}</select></label></div>
@@ -1195,10 +1210,10 @@ function chartHTML(cs,o){
     s+=`<path d="${path(r=>r.prog)}" fill="none" stroke="var(--steel)" stroke-width="2.6" stroke-linejoin="round"/>`;
     if(differs&&S.ui.showRepr)s+=`<path d="${path(r=>r.repr)}" fill="none" stroke="var(--steel)" stroke-width="2" stroke-dasharray="6 5" opacity=".55"/>`;
     const rl=rows.filter(r=>r.real!=null);
-    if(rl.length){const pts=rl.map(r=>[X(r.d),Y(r.real)]);if(rl[rl.length-1].d<cs.asOf)pts.push([X(cs.asOf),Y(cs.cur.real)]);const xe=pts[pts.length-1][0];
-      s+=`<path d="M${X(rl[0].d)} ${H-mB} ${pts.map(p=>'L'+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')} L${xe.toFixed(1)} ${H-mB} Z" fill="var(--real)" opacity=".12"/>`;
+    if(rl.length){const pts=rl.map(r=>[X(r.dr||r.d),Y(r.real)]);if((rl[rl.length-1].dr||rl[rl.length-1].d)<cs.asOf)pts.push([X(cs.asOf),Y(cs.cur.real)]);const xe=pts[pts.length-1][0];
+      s+=`<path d="M${X(rl[0].dr||rl[0].d)} ${H-mB} ${pts.map(p=>'L'+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')} L${xe.toFixed(1)} ${H-mB} Z" fill="var(--real)" opacity=".12"/>`;
       s+=`<path d="${pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')}" fill="none" stroke="var(--real)" stroke-width="3.2" stroke-linejoin="round"/>`}
-    rl.filter(r=>r.man).forEach(r=>{s+=`<rect x="${X(r.d)-3.5}" y="${Y(r.real)-3.5}" width="7" height="7" fill="var(--real)" stroke="var(--panel)" stroke-width="1.5"><title>Semana al ${fmtN(r.d)}: real capturado ${pc1(r.real)}</title></rect>`});
+    rl.filter(r=>r.man).forEach(r=>{s+=`<rect x="${X(r.dr||r.d)-3.5}" y="${Y(r.real)-3.5}" width="7" height="7" fill="var(--real)" stroke="var(--panel)" stroke-width="1.5"><title>Semana al ${fmtN(r.d)}: real capturado ${pc1(r.real)}</title></rect>`});
     projCortes().forEach(c=>{const d=dn(c.fecha);if(d>=d0&&d<=d1)s+=`<circle cx="${X(d)}" cy="${Y(c.real)}" r="5" fill="var(--panel)" stroke="var(--real)" stroke-width="2.5"><title>Corte ${esc(c.fecha)}: real ${pc1(c.real)}</title></circle>`});
     if(cs.asOf>=d0&&cs.asOf<=d1)s+=`<line x1="${X(cs.asOf)}" x2="${X(cs.asOf)}" y1="${mT}" y2="${H-mB}" stroke="var(--late)" stroke-dasharray="4 4"/>`}
   window._cv={cs,W,H,mL,mR,mT,mB,d0,d1,weekly,X};
@@ -1229,7 +1244,7 @@ function viewCurva(){
     const rin=canIn?`<input type="number" class="rin${r.man?' man':''}" min="0" max="100" step="0.1" data-preal="${sd(r.d)}" value="${r.man?(r.real*100).toFixed(1):''}" placeholder="${r.rc==null?'':(r.rc*100).toFixed(1)}" title="${r.man?'Capturado a mano. Bórralo para volver al avance calculado con las inspecciones.':'Calculado con las inspecciones. Escribe un valor para capturarlo a mano.'}" aria-label="Real acumulado (%) de la semana ${i}">`
       :(r.real==null?'—':pc1(r.real)+(r.man?' ✎':''));
     const phc=sh?ph.idx.map((_,k)=>`<td class="r num mut">${Math.round((r.ph[k]||0)*100)}%</td>`).join(''):'';
-    return `<tr${cur?' style="background:var(--sel)"':''}><td class="num">${i}</td><td class="num">${fmtN(r.del)}</td><td class="num b">${fmtN(r.d)}</td><td class="r num">${ppt(r.prog-pv.prog).replace(' pp','')}</td><td class="r num b">${pc1(r.prog)}</td>${S.ui.showRepr?`<td class="r num mut">${pc1(r.repr)}</td>`:''}<td class="r num b">${rin}</td><td class="r num">${r.real==null?'—':dv$(r.real-r.prog)}</td><td class="r num">${r.real==null||pv.real==null?'—':ppt(r.real-pv.real).replace(' pp','')}</td><td>${weekOf(r.d)?'<span class="pill">Corte</span>':''}</td>${phc}</tr>`}).join('');
+    return `<tr${cur?' style="background:var(--sel)"':''}><td class="num">${i}</td><td class="num">${fmtN(r.del)}</td><td class="num b">${fmtN(r.d)}</td><td class="r num">${ppt(r.prog-pv.prog).replace(' pp','')}</td><td class="r num b">${pc1(r.prog)}</td>${S.ui.showRepr?`<td class="r num mut">${pc1(r.repr)}</td>`:''}<td class="r num b">${rin}</td><td class="r num">${r.real==null?'—':dv$(r.real-(r.pa!=null?r.pa:r.prog))}</td><td class="r num">${r.real==null||pv.real==null?'—':ppt(r.real-pv.real).replace(' pp','')}</td><td>${r.part?'<span class="pill">En curso</span> ':''}${weekOf(r.d)?'<span class="pill">Corte</span>':''}</td>${phc}</tr>`}).join('');
   const phh=sh?ph.idx.map(i=>`<th class="r" title="${esc(T[i].n.trim())}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${esc(T[i].n.trim().slice(0,22))}</th>`).join(''):'';
   const lvlOpts=`<option value="">Automático</option>`+[0,1,2,3,4].map(n=>`<option value="${n}"${cv.nivel!=null&&cv.nivel!==''&&+cv.nivel===n?' selected':''}>Nivel ${n+1}</option>`).join('');
   return `<div class="bar-tools"><div class="seg"><button class="${S.ui.curva==='acum'?'on':''}" data-act="cmode" data-m="acum">Acumulado</button><button class="${S.ui.curva==='sem'?'on':''}" data-act="cmode" data-m="sem">Semanal</button></div>
@@ -1249,7 +1264,7 @@ function viewCurva(){
     <tr><td>Avance real capturado</td><td class="r num b">${nMan} ${nMan===1?'semana':'semanas'}</td><td class="sm mut">${ed?`Escríbelo en la tabla de cortes. <button class="btn sm" data-act="crealclear" ${nMan?'':'disabled'}>Quitar capturas</button>`:'Capturado por Bafar.'}</td></tr></tbody></table></div></div>
    <div class="card"><h3>2. Fases y pesos</h3><div class="tw" style="max-height:330px"><table class="t"><thead><tr><th>Fase</th><th>Inicio</th><th>Fin</th><th class="r">Peso base (días)</th><th class="r">Peso manual</th><th class="r">Peso usado</th><th class="r">% del total</th><th class="r">Prog.</th><th class="r">Real</th></tr></thead><tbody>${phRows}</tbody></table></div>
     <div class="sm mut" style="padding:8px 12px">El peso base es la suma de días laborables de las actividades de la fase. Con un peso manual la fase pesa más o menos en la curva y en el avance total. ${cv.pesos&&Object.keys(cv.pesos).length&&ed?'<button class="btn sm" data-act="pesoreset">Quitar pesos manuales</button>':''}</div></div></div>
-  <div class="card" style="margin-top:14px"><h3>3. Cortes semanales</h3><div class="sm mut" style="padding:0 12px 8px">${ed?'Escribe cada semana el <b>avance real acumulado (%)</b> en la columna «Real acum.»: la curva S, la desviación y los reportes se actualizan solos. Si dejas la celda vacía se usa el avance calculado con las inspecciones (se muestra en gris).':'El avance real de cada semana lo captura Bafar.'}</div>
+  <div class="card" style="margin-top:14px"><h3>3. Cortes semanales</h3><div class="sm mut" style="padding:0 12px 8px">${ed?'El avance real sale solo de lo que marcas en la pestaña <b>Programa</b> (columna «Real», con la fecha de corte) y de las inspecciones liberadas: la semana en curso se actualiza al momento. Si necesitas fijar a mano el real de una semana, escríbelo en «Real acum. (%)»; vacío usa el avance del programa (se muestra en gris).':'El avance real de cada semana lo captura Bafar.'}</div>
    <div class="tw" style="max-height:520px"><table class="t"><thead><tr><th>Sem.</th><th>Del</th><th>Al (corte)</th><th class="r">Avance sem. (pp)</th><th class="r">Prog. acum.</th>${S.ui.showRepr?'<th class="r">Reprog.</th>':''}<th class="r">Real acum. (%)</th><th class="r">Desv.</th><th class="r">Real sem. (pp)</th><th></th>${phh}</tr></thead><tbody>${tr}</tbody></table></div></div>`}
 
 /* ---- CORTES ---- */
@@ -1464,6 +1479,40 @@ function doShift(){const P=PR(),d=shiftDelta();if(!d){closeModal();return}
 /* ---- edición de actividades ---- */
 function normalizeTasks(P){const T=P.tasks;fixLevels(T);const{par,kids}=buildTree(T);
   T.forEach((t,i)=>{if(kids[i].length){t.ms=0;return}t.ms=t.d>0?0:1;if(!t.ms&&!t.tp&&!(t.cl&&t.cl.length))t.tp=matchTplCtx(T,i,par)})}
+const _sm={k:'',m:null};
+function succMapOf(P){const k=P.id+'|'+S.v+'|'+P.tasks.length;if(_sm.k===k)return _sm.m;
+  const rm=rowMap(P.tasks),m=new Map();
+  P.tasks.forEach((t,i)=>{if(!t.p)return;parsePred(t.p).forEach(l=>{if(!rm.has(l.id))return;let a=m.get(l.id);if(!a)m.set(l.id,a=[]);a.push({r:i+1,t:l.t,lag:l.lag,u:l.u})})});
+  m.forEach(a=>a.sort((x,y)=>x.r-y.r));_sm.k=k;_sm.m=m;return m}
+const succDisp=a=>(a||[]).map(x=>x.r+(PT_ES[x.t]||'')+lagStr(x)).join('; ');
+const LINK_RE=/^(\d+)\s*(FS|FC|SS|CC|FF|SF|CF)?\s*(?:([+-])\s*(\d+(?:[.,]\d+)?)\s*(d|dia|dias|día|días|w|sem|semana|semanas|%)?)?$/i;
+function setSuccessors(P,t,input){
+  const T=P.tasks,txt=String(input==null?'':input).trim(),want=[];
+  if(txt){for(let x of txt.split(/[;,]/)){x=x.trim();if(!x)continue;
+      const m=LINK_RE.exec(x);if(!m)return{err:'No entendí «'+x+'». Escribe números de fila, por ejemplo: 8, 9SS+2. Tipos: FS fin a comienzo (el normal), SS comienzo a comienzo, FF fin a fin, SF comienzo a fin.'};
+      const r=+m[1];if(r<1||r>T.length)return{err:'La fila '+r+' no existe (el programa tiene '+T.length+' filas).'};
+      const q=T[r-1];if(q.i===t.i)return{err:'Una actividad no puede ser sucesora de sí misma.'};
+      if(T[r]&&T[r].l>q.l)return{err:'La fila '+r+' es un grupo: liga actividades individuales.'};
+      if(dependsOn(T,t.i,q.i))return{err:'La liga con la fila '+r+' crea un ciclo: esa actividad ya es predecesora de esta.'};
+      const u=(m[5]||'d').toLowerCase();
+      want.push({q,l:{id:t.i,t:PT_IN[(m[2]||'FS').toUpperCase()],lag:m[3]?parseFloat(m[4].replace(',','.'))*(m[3]==='-'?-1:1):0,u:/^(w|sem)/.test(u)?'w':u==='%'?'%':'d'}})}}
+  const ids=new Set(want.map(w=>w.q.i));
+  T.forEach(q=>{if(!q.p||ids.has(q.i))return;const ls=parsePred(q.p);if(ls.some(l=>l.id===t.i))q.p=ls.filter(l=>l.id!==t.i).map(linkStr).join(';')});
+  want.forEach(w=>{const ls=parsePred(w.q.p).filter(l=>l.id!==t.i);ls.push(w.l);w.q.p=ls.map(linkStr).join(';')});
+  let moved=[];
+  if(S.ui.casc)want.forEach(w=>{const ch=enforceTask(P,w.q.i);if(ch.length){moved.push(w.q.i);cascadeFrom(P,ch).forEach(x=>moved.push(x))}});
+  return{moved:[...new Set(moved)]}}
+/* avance real marcado en el programa: queda con la fecha de corte para que la curva S lo ubique en su semana */
+function markReal(t,v){
+  const date=sd(S.asOf),h=(t.rh||[]).filter(m=>m[0]!==date),txt=String(v==null?'':v).trim().replace(',','.');
+  if(txt===''){const prev=(t.rh||[]).filter(m=>m[0]<=date).pop();t.rh=(t.rh||[]).filter(m=>m!==prev);if(!t.rh.length)delete t.rh;return}
+  let x=parseFloat(txt);if(isNaN(x))return;x=Math.round(Math.min(100,Math.max(0,x))*10)/10;if(t.ms)x=x>=50?100:0;
+  h.push([date,x]);h.sort((a,b)=>a[0].localeCompare(b[0]));t.rh=h}
+function linkPrev(k){
+  const P=PR(),T=P.tasks,t=T[k];if(!t)return;if(T[k+1]&&T[k+1].l>t.l)return toast('Esa fila es un grupo: selecciona una actividad.','err');
+  let j=k-1;while(j>=0&&T[j+1]&&T[j+1].l>T[j].l)j--;if(j<0)return toast('No hay una actividad anterior para ligar.','err');
+  const cur=predDisp(T,t.p),has=parsePred(t.p).some(l=>l.id===T[j].i);if(has)return toast('Ya está ligada a la fila '+(j+1)+'.');
+  editTask(t.i,'p',(cur?cur+'; ':'')+(j+1))}
 function editTask(id,k,v){
   if(!S.canProg)return;const P=PR(),i=P.tasks.findIndex(t=>t.i===id);if(i<0)return;const t=P.tasks[i],cal=mkCal(P.cfg),os=dn(t.s),of=dn(t.f);let time=false,moved=[];
   switch(k){
@@ -1474,6 +1523,8 @@ function editTask(id,k,v){
    case'hc':t.hc=v||'';break;
    case'pm':t.pm=Math.min(100,Math.max(0,parseFloat(v)||0));break;
    case'tp':t.tp=v||'';t.cl=null;break;
+   case'pr':markReal(t,v);break;
+   case'sc':{const r=setSuccessors(P,t,v);if(r.err){toast(r.err,'err');render();return}fixSummaries(P);if(r.moved.length)toast('Se acomodaron '+r.moved.length+' actividades sucesoras.');break}
    case'p':{const r=predParse(P.tasks,v,t.i);if(r.err){toast(r.err,'err');render();return}t.p=r.p;time='links';break}
    case's':{const x=dn(v);if(x==null)return;t.s=sd(x);t.f=sd(t.ms?x:finishFrom(x,t.d,cal));time=true;break}
    case'd':{const d=Math.max(0,parseFloat(String(v).replace(',','.'))||0);const s=dn(t.s);t.d=d;t.f=sd(d>0?finishFrom(s,d,cal):s);t.ms=d>0?0:1;if(d>0&&!t.tp&&!(t.cl&&t.cl.length))t.tp=matchTpl(t.n);time=true;break}
@@ -1506,8 +1557,8 @@ function askDelTask(id){const P=PR(),T=P.tasks,i=T.findIndex(t=>t.i===id);if(i<0
   const ni=S.insps.filter(x=>x.pid===P.id&&T.slice(i,i+n).some(q=>q.i===x.tid)).length;
   confirmBox('Eliminar '+(n>1?'grupo':'fila'),`Se eliminará «${esc(t.n.trim())}»${n>1?' junto con sus '+(n-1)+' actividades':''}${ni?' y sus '+ni+' inspecciones':''}.`,'Eliminar',()=>{delTask(t.i);if(S.sel===t.i)S.sel=null},true)}
 function openPaste(){MODAL={};openModal(`<div class="mh"><h3>Pegar filas desde Excel</h3><button class="btn ghost" data-act="mclose">✕</button></div><div class="mb">
-  <div class="sm mut" style="margin-bottom:8px">Copia las celdas en Excel y pégalas aquí. Columnas en este orden: <b>Actividad · Duración (días) · Inicio · Predecesoras</b>. Solo la primera es obligatoria. Cada 2 espacios al inicio del nombre bajan un nivel. En <b>Predecesoras</b> escribe el N° de fila final del programa (3, 5CC+2). Se insertan debajo de la fila seleccionada (o al final).</div>
-  <textarea id="ptxt" rows="10" style="width:100%;font:12.5px/1.4 ui-monospace,monospace" placeholder="Excavación de cepas&#9;5&#9;15/03/2027&#10;Armado de acero&#9;4&#9;&#9;12CC+1&#10;Colado de zapatas&#9;2&#9;&#9;13"></textarea></div>
+  <div class="sm mut" style="margin-bottom:8px">Copia las celdas en Excel y pégalas aquí. Columnas en este orden: <b>Actividad · Duración (días) · Inicio · Predecesoras</b>. Solo la primera es obligatoria. Cada 2 espacios al inicio del nombre bajan un nivel. En <b>Predecesoras</b> escribe el N° de fila final del programa (3, 5SS+2, 7FF). Se insertan debajo de la fila seleccionada (o al final).</div>
+  <textarea id="ptxt" rows="10" style="width:100%;font:12.5px/1.4 ui-monospace,monospace" placeholder="Excavación de cepas&#9;5&#9;15/03/2027&#10;Armado de acero&#9;4&#9;&#9;12SS+1&#10;Colado de zapatas&#9;2&#9;&#9;13"></textarea></div>
   <div class="mf"><button class="btn" data-act="mclose">Cancelar</button><button class="btn pri" data-act="ppasteok">Agregar filas</button></div>`)}
 function pasteRows(text){
   const P=PR(),T=P.tasks,cal=mkCal(P.cfg);
@@ -1546,7 +1597,7 @@ function setMetaField(k,v){const p=clone(curMeta());
 const selTpl=p=>{const L=tplEff(p).list;return L.find(t=>t.id===S.ui.tplSel)||L[0]||null};
 const selTplOwn=p=>{const t=selTpl(p);return t?ownTpl(p,t.id):null};
 /* ---- eventos: clic ---- */
-const PROG_ACTS=new Set(['newproj','import','gedit','addtask','taddbelow','shift','shiftok','baseline','tbase','tlvl','tdel','corte','corteok','delcorte','editcl','cledel','cleadd','clereset','clesave','reassign','tpladd','tpladdok','tpldel','tiadd','tidel','delproj','delprojok','pickfile','imptxt','impempty','impok','prow','pup','pdown','pins','pdel','pind','pout','ppaste','ppasteok','crealclear','cexp-pdf','cutdia','pesoreset']);
+const PROG_ACTS=new Set(['newproj','import','gedit','addtask','taddbelow','shift','shiftok','baseline','tbase','tlvl','tdel','corte','corteok','delcorte','editcl','cledel','cleadd','clereset','clesave','reassign','tpladd','tpladdok','tpldel','tiadd','tidel','delproj','delprojok','pickfile','imptxt','impempty','impok','prow','pup','pdown','pins','plink','punlink','pdel','pind','pout','ppaste','ppasteok','crealclear','cexp-pdf','cutdia','pesoreset']);
 document.addEventListener('click',async ev=>{
   const el=ev.target.closest('[data-act]');
   if(!el){if(ev.target.id==='modal')closeModal();return}
@@ -1565,7 +1616,9 @@ document.addEventListener('click',async ev=>{
    case'gnivel':S.ui.nivel=+el.dataset.n;render();break;
    case'gzoom':S.ui.zoom=el.dataset.z;prefSave();render();break;
    case'gedit':S.ui.edit=!S.ui.edit;render();break;
-   case'addtask':addTaskBelow(S.drawer&&S.tab==='programa'?S.drawer:null);break;
+   case'addtask':{const ed=S.ui.edit&&S.canProg&&S.tab==='programa';addTaskBelow(ed?(selIdx()>=0?S.sel:null):(S.drawer&&S.tab==='programa'?S.drawer:null),ed?{quiet:true,name:'Nueva actividad',focus:'n'}:undefined);break}
+   case'plink':{const k=selIdx();if(k<0)return toast('Toca el N° de una fila para seleccionarla.','err');linkPrev(k);break}
+   case'punlink':{const k=selIdx();if(k<0)return toast('Toca el N° de una fila para seleccionarla.','err');editTask(S.sel,'p','');break}
    case'prow':S.sel=S.sel===id?null:id;render();break;
    case'pind':if(selIdx()>=0)taskLevel(S.sel,1);else toast('Selecciona primero una fila (toca su N°).','err');break;
    case'pout':if(selIdx()>=0)taskLevel(S.sel,-1);else toast('Selecciona primero una fila (toca su N°).','err');break;
@@ -1701,7 +1754,7 @@ document.addEventListener('pointermove',ev=>{
   const sn=Math.round(dx/DR.dw)*DR.dw;if(DR.kind==='move')DR.bar.style.left=(DR.left+sn)+'px';else DR.bar.style.width=Math.max(DR.dw,DR.w+sn)+'px'});
 document.addEventListener('pointerup',ev=>{
   if(!DR)return;const d=DR;DR=null;
-  if(!d.moved){S.drawer=d.id;render();return}
+  if(!d.moved){if(S.ui.edit&&S.canProg)S.sel=d.id;else S.drawer=d.id;render();return}
   if(!d.edit)return;
   const days=Math.round((ev.clientX-d.x0)/d.dw);if(!days){refreshGantt();return}
   const P=PR(),t=P.tasks.find(x=>x.i===d.id);if(!t)return;
@@ -2006,8 +2059,8 @@ function pdfCurveChart(D,cs,x0,y0,w,h,showRepr){
   const mL=36,mB=20,mT=6,mR=8,px=x0+mL,py=y0+mT,pw=w-mL-mR,ph=h-mT-mB,rows=cs.rows,d0=rows[0].d,d1=rows[rows.length-1].d;
   const X=d=>px+(d-d0)/Math.max(1,d1-d0)*pw,Y=v=>py+(1-Math.max(0,Math.min(1,v)))*ph;
   D.rect(x0,y0,w,h,'#ffffff','#d3dce4',.6);
-  const rl=rows.filter(r=>r.real!=null),rp=rl.map(r=>[X(r.d),Y(r.real)]);
-  if(rl.length&&rl[rl.length-1].d<cs.asOf)rp.push([X(cs.asOf),Y(cs.cur.real)]);
+  const rl=rows.filter(r=>r.real!=null),rp=rl.map(r=>[X(r.dr||r.d),Y(r.real)]);
+  if(rl.length&&(rl[rl.length-1].dr||rl[rl.length-1].d)<cs.asOf)rp.push([X(cs.asOf),Y(cs.cur.real)]);
   if(rp.length>1)D.poly([[rp[0][0],Y(0)]].concat(rp,[[rp[rp.length-1][0],Y(0)]]),{fill:'#fbebdc'});
   for(let v=0;v<=1.0001;v+=.1){D.line(px,Y(v),px+pw,Y(v),v===0?'#74869a':'#e1e8ee',v===0?.8:.5);D.text(Math.round(v*100)+'%',px-5,Y(v)+3,7,{align:'right',color:'#74869a'})}
   const months=[];for(let d=d0;d<=d1;d++){const dt=new Date(d*DAY);if(dt.getUTCDate()===1)months.push([d,MESES[dt.getUTCMonth()]+' '+String(dt.getUTCFullYear()).slice(2)])}
@@ -2017,7 +2070,7 @@ function pdfCurveChart(D,cs,x0,y0,w,h,showRepr){
   if(showRepr&&rows.some(r=>Math.abs(r.prog-r.repr)>0.002))D.poly(path(r=>r.repr),{stroke:'#9db0c4',lw:1.4,dash:[4,3]});
   D.poly(path(r=>r.prog),{stroke:'#5b7a99',lw:2});
   if(rp.length>1)D.poly(rp,{stroke:'#d4700c',lw:2.4});
-  rl.filter(r=>r.man).forEach(r=>D.rect(X(r.d)-2.2,Y(r.real)-2.2,4.4,4.4,'#d4700c','#ffffff',.6));
+  rl.filter(r=>r.man).forEach(r=>D.rect(X(r.dr||r.d)-2.2,Y(r.real)-2.2,4.4,4.4,'#d4700c','#ffffff',.6));
   projCortes().forEach(c=>{const d=dn(c.fecha);if(d>=d0&&d<=d1){const cx=X(d),cy=Y(c.real),q=[];for(let a=0;a<12;a++)q.push([cx+3.4*Math.cos(a*Math.PI/6),cy+3.4*Math.sin(a*Math.PI/6)]);D.poly(q,{fill:'#ffffff',stroke:'#d4700c',lw:1.4})}});
   if(cs.asOf>=d0&&cs.asOf<=d1){D.poly([[X(cs.asOf),py],[X(cs.asOf),py+ph]],{stroke:'#cc332e',lw:.8,dash:[3,3]});D.text('Hoy',X(cs.asOf)+3,py+8,6.8,{color:'#cc332e',bold:true})}}
 async function curvaPDF(){
@@ -2076,8 +2129,8 @@ async function curvaPDF(){
   table('Fases y pesos',[{h:'Fase',w:250,wrap:true},{h:'Inicio',w:56},{h:'Fin',w:56},{h:'Peso base (días)',w:78,a:'r'},{h:'Peso manual',w:68,a:'r'},{h:'Peso usado',w:64,a:'r'},{h:'% del total',w:58,a:'r'},{h:'Prog.',w:44,a:'r'},{h:'Real',w:44,a:'r'}],fr,{sub:ph.idx.length+' fases'});
   // 3) cortes semanales
   const wk=[];cs.rows.forEach((r,i)=>{if(!i)return;const pv=cs.rows[i-1],reg=cor.some(c=>{const x=dn(c.fecha);return x>r.d-7&&x<=r.d}),cur=r.del<=S.asOf&&S.asOf<=r.d;
-    wk.push({c:[i,fmtN(r.del),fmtN(r.d),pp(r.prog-pv.prog),pc1(r.prog),pc1(r.repr),r.real==null?'—':pc1(r.real),r.real==null?'':(r.man?'Capturado':'Calculado'),r.real==null?'—':pp(r.real-r.prog),r.real==null||pv.real==null?'—':pp(r.real-pv.real),reg?'Corte':''],
-      col:{8:r.real==null?MUT:dc(r.real-r.prog)},b:reg||cur?[0,2,4,6]:false,bg:cur?'#e6eefb':null})});
+    wk.push({c:[i,fmtN(r.del),fmtN(r.d),pp(r.prog-pv.prog),pc1(r.prog),pc1(r.repr),r.real==null?'—':pc1(r.real),r.real==null?'':(r.man?'Capturado':'Calculado'),r.real==null?'—':pp(r.real-(r.pa!=null?r.pa:r.prog)),r.real==null||pv.real==null?'—':pp(r.real-pv.real),reg?'Corte':''],
+      col:{8:r.real==null?MUT:dc(r.real-(r.pa!=null?r.pa:r.prog))},b:reg||cur?[0,2,4,6]:false,bg:cur?'#e6eefb':null})});
   table('Cortes semanales: programado y avance real',[{h:'Sem.',w:30},{h:'Del',w:56},{h:'Al (corte)',w:56},{h:'Avance sem.',w:62,a:'r'},{h:'Prog. acum.',w:62,a:'r'},{h:'Reprog.',w:54,a:'r'},{h:'Real acum.',w:62,a:'r'},{h:'Origen del real',w:76},{h:'Desviación',w:62,a:'r'},{h:'Real sem.',w:60,a:'r'},{h:'Registro',w:48}],wk,{sub:wk.length+' semanas · corte los '+DIAS_N[cs.dia].toLowerCase()+'s',rh:12.6});
   const gen='Generado el '+new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
   D.pages.forEach((pg,n)=>{D.c=pg;D.line(M,D.H-30,W-M,D.H-30,'#d3dce4',.6);D.text('Grupo Bafar Construcción · Control de avance de obra · '+(p.nombre||'')+' · '+gen,M,D.H-18,7.5,{color:MUT});D.text('Página '+(n+1)+' de '+D.pages.length,W-M,D.H-18,7.5,{color:MUT,align:'right'})});
