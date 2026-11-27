@@ -180,6 +180,13 @@ body.edit .bar:not(.sm2){cursor:grab}body.edit .bar .rz{display:block}
 .tip{position:fixed;z-index:90;background:var(--ink);color:var(--panel);padding:7px 10px;border-radius:7px;font-size:12px;pointer-events:none;box-shadow:var(--shadow);line-height:1.5}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:9px;z-index:100;max-width:90vw}
 .toast.err{background:var(--late);color:#fff}
+.insmenu{position:fixed;z-index:95;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow),0 10px 30px rgba(0,0,0,.2);padding:6px;min-width:270px;max-width:calc(100vw - 16px);font-size:13px}
+.insmenu .imh{padding:4px 10px 6px;font-size:11.5px;color:var(--mut);border-bottom:1px solid var(--line2);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.insmenu button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:transparent;color:var(--ink);padding:7px 10px;border-radius:7px;cursor:pointer;font:inherit;font-weight:500}
+.insmenu button:hover:not(:disabled),.insmenu button:focus-visible{background:var(--sel)}
+.insmenu button small{color:var(--mut);font-size:11.5px;font-weight:400}
+.insmenu button:disabled{opacity:.45;cursor:not-allowed}
+.insmenu hr{border:0;border-top:1px solid var(--line2);margin:4px 0}
 body.ro .w{display:none!important}
 body.nop .pw{display:none!important}
 .hide{display:none!important}
@@ -308,7 +315,9 @@ function addW(n,k,c){ // mueve k dias laborables (k puede ser negativo); n se no
   n=prevW(n,c);while(k<0){n--;n=prevW(n,c);k++}return n}
 function finishFrom(s,d,c){if(!(d>0))return s;const st=nextW(s,c);return addW(st,Math.ceil(d)-1,c)}
 function startFrom(f,d,c){if(!(d>0))return f;const fi=prevW(f,c);return addW(fi,-(Math.ceil(d)-1),c)}
-function workBetween(a,b,c){if(b<a)return 0;let k=0;for(let x=a;x<=b;x++)if(isW(x,c))k++;return k}
+function workBetween(a,b,c){if(b<a)return 0;const dias=c.dias,n=b-a+1,w=Math.floor(n/7);let k=w*dias.length;
+  for(let x=a+w*7;x<=b;x++)if(dias.includes(wday(x)))k++;
+  c.inh.forEach(h=>{if(h>=a&&h<=b&&dias.includes(wday(h)))k--});return k}
 
 /* ---- lectura de fechas y duraciones ---- */
 const WD_EN=['sun','mon','tue','wed','thu','fri','sat'],WD_ES=['dom','lun','mar','mie','jue','vie','sab'];
@@ -671,8 +680,11 @@ const lagStr=l=>l.lag?(l.lag>0?'+':'-')+Math.abs(l.lag)+(l.u==='w'?'sem':l.u==='
 function predDisp(T,pstr,rm){const m=rm||rowMap(T);
   return parsePred(pstr).map(l=>{const r=m.get(l.id);if(!r)return '';return String(r)+(PT_ES[l.t]||'')+lagStr(l)}).filter(Boolean).join('; ')}
 const linkStr=l=>l.id+((l.t!=='FS'||/(FS|SS|FF|SF|FC|CC|CF)$/i.test(l.id))?l.t:'')+(l.lag?(l.lag>0?'+':'-')+Math.abs(l.lag)+(l.u==='w'?'w':l.u==='%'?'%':''):'');
-function dependsOn(T,a,b){const idx={};T.forEach((t,i)=>idx[t.i]=i);const seen=new Set(),st=[a];
-  while(st.length){const x=st.pop();if(x===b)return true;if(seen.has(x))continue;seen.add(x);const t=T[idx[x]];if(t)parsePred(t.p).forEach(l=>st.push(l.id))}return false}
+function dependsOn(T,a,b){const idx={};T.forEach((t,i)=>idx[t.i]=i);const{kids}=buildTree(T),seen=new Set(),st=[a];
+  /* un grupo depende de sus subtareas (sus fechas salen de ellas); las ligas escritas en un grupo no se aplican */
+  while(st.length){const x=st.pop();if(x===b)return true;if(seen.has(x))continue;seen.add(x);const i=idx[x];if(i==null)continue;
+    if(kids[i].length)kids[i].forEach(k=>st.push(T[k].i));else parsePred(T[i].p).forEach(l=>st.push(l.id))}return false}
+function isAncestorOf(T,gid,id){const{par}=buildTree(T);let i=T.findIndex(t=>t.i===id);if(i<0)return false;for(i=par[i];i>=0;i=par[i])if(T[i].i===gid)return true;return false}
 function predParse(T,input,selfId){
   const txt=String(input==null?'':input).trim();if(!txt)return{p:''};
   const parts=[];txt.split(/[;,]/).forEach(x=>{x=x.trim();if(!x)return;if(/^\d+(\s+\d+)+$/.test(x))x.split(/\s+/).forEach(y=>parts.push(y));else parts.push(x)});
@@ -682,6 +694,7 @@ function predParse(T,input,selfId){
     if(!m)return{err:'No entendí «'+x+'». Escribe números de fila, por ejemplo: 3, 5SS+2 (SS = comienzo a comienzo, +2 = 2 días de retraso). Tipos: FS fin a comienzo (el normal), SS comienzo a comienzo, FF fin a fin, SF comienzo a fin.'};
     const r=+m[1];if(r<1||r>T.length)return{err:'La fila '+r+' no existe (el programa tiene '+T.length+' filas).'};
     const t=T[r-1];if(t.i===selfId)return{err:'Una actividad no puede depender de sí misma.'};
+    if(isAncestorOf(T,t.i,selfId))return{err:'La fila '+r+' es el grupo al que pertenece esta actividad: un grupo no puede ser predecesor de sus propias subtareas.'};
     if(dependsOn(T,t.i,selfId))return{err:'La liga con la fila '+r+' crea un ciclo: esa actividad ya depende de esta.'};
     const tp=PT_IN[(m[2]||'FS').toUpperCase()],amb=/(FS|SS|FF|SF|FC|CC|CF)$/i.test(t.i);
     let o=t.i+((tp!=='FS'||amb)?tp:'');
@@ -699,24 +712,32 @@ function constraintFor(t,pt,link,cal){
   if(link.t==='SF')return{f:addW(ps,lag,cal)};return null}
 function cascadeFrom(P,changes){
   // changes: [{i, os, of}] fechas (dn) ANTES del cambio. Las sucesoras se recorren igual que su predecesora (hacia adelante o hacia atrás),
-  // conservando la holgura que ya traían, como en MS Project con programación automática.
+  // conservando la holgura que ya traían, como en MS Project con programación automática. Los grupos (resúmenes) se recalculan con
+  // sus subtareas dentro de la misma pasada y empujan a sus propias sucesoras.
   const T=P.tasks,cal=mkCal(P.cfg),idx={};T.forEach((t,i)=>idx[t.i]=i);
-  const {kids}=buildTree(T);const succ={};
+  const {par,kids}=buildTree(T);const succ={};
   T.forEach((t,i)=>{if(kids[i].length)return;parsePred(t.p).forEach(l=>{if(idx[l.id]!=null)(succ[l.id]=succ[l.id]||[]).push(i)})});
-  const old={};const q=[];changes.forEach(c=>{old[c.i]={s:c.os,f:c.of};q.push(c.i)});
-  const moved=new Set();let guard=0;
-  while(q.length&&guard++<40000){const id=q.shift();
+  const old={},q=[],inq=new Set(),push=id=>{if(!inq.has(id)){inq.add(id);q.push(id)}};
+  const up=i=>{for(let g=par[i];g>=0;g=par[g]){const t=T[g];let a=null,b=null,all0=true;
+      for(const k of kids[g]){const c=T[k],s=dn(c.s),f=dn(c.f);if(s!=null&&(a==null||s<a))a=s;if(f!=null&&(b==null||f>b))b=f;if(!(c.d===0||c.ms))all0=false}
+      if(a==null||b==null)break;if(b<a)b=a;const os=dn(t.s),of=dn(t.f);if(os===a&&of===b)break;
+      if(!old[t.i])old[t.i]={s:os,f:of};
+      t.s=sd(a);t.f=sd(b);t.d=(a===b&&all0)?0:Math.max(1,workBetween(a,b,cal));push(t.i)}};
+  changes.forEach(c=>{if(!old[c.i])old[c.i]={s:c.os,f:c.of};push(c.i)});
+  changes.forEach(c=>{const i=idx[c.i];if(i!=null&&!kids[i].length)up(i)});
+  const moved=new Set();let guard=0,qi=0;
+  while(qi<q.length&&guard++<40000){const id=q[qi++];inq.delete(id);
     for(const si of(succ[id]||[])){const t=T[si];let cs=null,cf=null;
-      const s0=dn(t.s),f0=dn(t.f);
+      const s0=dn(t.s),f0=dn(t.f),o=old[t.i],s0o=o?o.s:s0,f0o=o?o.f:f0; // la holgura se mide contra las fechas ORIGINALES: reevaluar no suma dos veces
       for(const l of parsePred(t.p)){const pj=idx[l.id];if(pj==null)continue;
         const pn=T[pj],po=old[l.id]?Object.assign({},pn,{s:sd(old[l.id].s),f:sd(old[l.id].f)}):pn;
         const c1=constraintFor(t,pn,l,cal),c0=constraintFor(t,po,l,cal);if(!c1||!c0)continue;
-        if(c1.s!=null&&c0.s!=null){const e=c1.s+(s0-c0.s);if(cs==null||e>cs)cs=e}
-        if(c1.f!=null&&c0.f!=null){const e=c1.f+(f0-c0.f);if(cf==null||e>cf)cf=e}}
+        if(c1.s!=null&&c0.s!=null){const e=c1.s+(s0o-c0.s);if(cs==null||e>cs)cs=e}
+        if(c1.f!=null&&c0.f!=null){const e=c1.f+(f0o-c0.f);if(cf==null||e>cf)cf=e}}
       let s=s0,f=f0,ch=false;
       if(cs!=null&&cs!==s0){s=cs;f=finishFrom(s,t.d,cal);ch=true}
       if(cf!=null&&(!ch||f<cf)&&cf!==f){f=cf;s=startFrom(f,t.d,cal);ch=true}
-      if(ch&&(s!==s0||f!==f0)){if(!old[t.i])old[t.i]={s:s0,f:f0};t.s=sd(s);t.f=sd(f);moved.add(t.i);q.push(t.i)}}}
+      if(ch&&(s!==s0||f!==f0)){if(!old[t.i])old[t.i]={s:s0,f:f0};t.s=sd(s);t.f=sd(f);moved.add(t.i);push(t.i);up(si)}}}
   return[...moved]}
 function enforceTask(P,id){ // acomoda una actividad exactamente según sus ligas (al capturarlas o cambiarlas)
   const T=P.tasks,cal=mkCal(P.cfg),idx={};T.forEach((t,i)=>idx[t.i]=i);const t=T[idx[id]];if(!t)return[];
@@ -728,11 +749,19 @@ function enforceTask(P,id){ // acomoda una actividad exactamente según sus liga
   if(s==null)return[];
   const f=finishFrom(s,t.d,cal);
   if(s!==os||f!==of){t.s=sd(s);t.f=sd(f);return[{i:id,os,of}]}return[]}
-function fixSummaries(P){ // los resumenes se expanden para cubrir a sus hijos
-  const T=P.tasks,{kids}=buildTree(T);
-  for(let i=T.length-1;i>=0;i--){if(!kids[i].length)continue;let a=dn(T[i].s),b=dn(T[i].f);
-    for(const k of kids[i]){const s=dn(T[k].s),f=dn(T[k].f);if(s!=null&&(a==null||s<a))a=s;if(f!=null&&(b==null||f>b))b=f}
-    if(a!=null)T[i].s=sd(a);if(b!=null)T[i].f=sd(b)}}
+function fixSummaries(P){ // como en MS Project: un grupo toma el inicio de su primera subtarea y el fin de la última; su duración son los días laborables de ese lapso
+  const T=P.tasks,cal=mkCal(P.cfg),{kids}=buildTree(T),out=[];
+  for(let i=T.length-1;i>=0;i--){if(!kids[i].length)continue;
+    let a=null,b=null,ba=null,bb=null,all0=true;
+    for(const k of kids[i]){const q=T[k],s=dn(q.s),f=dn(q.f),x=dn(q.bs),y=dn(q.bf);
+      if(s!=null&&(a==null||s<a))a=s;if(f!=null&&(b==null||f>b))b=f;
+      if(x!=null&&(ba==null||x<ba))ba=x;if(y!=null&&(bb==null||y>bb))bb=y;
+      if(!(q.d===0||q.ms))all0=false}
+    const t=T[i],os=dn(t.s),of=dn(t.f);
+    if(a!=null&&b!=null){if(b<a)b=a;t.s=sd(a);t.f=sd(b);t.d=(a===b&&all0)?0:Math.max(1,workBetween(a,b,cal))}
+    if(ba!=null&&bb!=null){t.bs=sd(ba);t.bf=sd(bb)}
+    if(dn(t.s)!==os||dn(t.f)!==of)out.push({i:t.i,os,of})}
+  return out}
 function shiftAll(P,days){P.tasks.forEach(t=>{for(const k of['s','f','bs','bf']){const v=dn(t[k]);if(v!=null)t[k]=sd(v+days)}})}
 
 if(false)module.exports={markOf,buildPhases,curvaCfg,defaultDia,diaWd,weekEnd,manualRealAt,rowMap,predDisp,predParse,dependsOn,newTid,idHierarchy,mergePrograms,dn,sd,wday,mondayN,mkCal,isW,nextW,addW,finishFrom,startFrom,workBetween,parseDateCell,detectOrder,parseDur,parsePred,matchTpl,matchTplCtx,inferLevels,rowsToTasks,finishTasks,buildTree,calcAll,curveS,cascadeFrom,enforceTask,fixSummaries,shiftAll,mkItems,checkState,checklistOf,fmtN,strip,projectRange,fixLevels,subtreeEnd}
@@ -778,7 +807,7 @@ const firmaChip=i=>{const e=firmaEst(i),f=FIRMA_TXT[e];return `<span class="chip
 let _inc={k:'',v:[]};
 function calcInsps(){const k=S.cur+'|'+S.v;if(_inc.k!==k)_inc={k,v:projInsps().filter(i=>{const e=firmaEst(i);return e==='ant'||e==='liberada'})};return _inc.v}
 let _cc={k:'',v:null},_cv={k:'',v:null};
-function CALC(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cc.k!==k)_cc={k,v:calcAll(PR(),calcInsps(),S.asOf)};return _cc.v}
+function CALC(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cc.k!==k){const P=PR();fixSummaries(P);_cc={k,v:calcAll(P,calcInsps(),S.asOf)}}return _cc.v}
 function CURVE(){const p=curMeta();if(!p)return null;const k=S.cur+'|'+S.v+'|'+S.asOf;if(_cv.k!==k)_cv={k,v:curveS(PR(),calcInsps(),S.asOf)};return _cv.v}
 const taskIdx=id=>{const T=(PR()||{tasks:[]}).tasks;return T.findIndex(t=>t.i===id)};
 const projCortes=()=>S.cortes.filter(c=>c.pid===S.cur).sort((a,b)=>a.fecha.localeCompare(b.fecha));
@@ -970,11 +999,11 @@ function progEditBar(){
   return `<div class="bar-tools prog pw" style="margin-top:6px"><span class="sm mut">${k>=0?`Fila <b>${k+1}</b> seleccionada`:'Toca el N° de una fila para seleccionarla'}</span>
    <button class="btn sm" data-act="pout" title="Subir de nivel (quitar sangría)">◀ Nivel</button><button class="btn sm" data-act="pind" title="Bajar de nivel (sangría)">Nivel ▶</button>
    <button class="btn sm" data-act="plink" title="Liga la fila seleccionada a la actividad anterior (fin a comienzo)">🔗 Ligar a la anterior</button><button class="btn sm" data-act="punlink" title="Quita las predecesoras de la fila seleccionada">Quitar ligas</button>
-   <button class="btn sm" data-act="pup">▲ Subir</button><button class="btn sm" data-act="pdown">▼ Bajar</button><button class="btn sm" data-act="pins">+ Fila debajo</button><button class="btn sm dng" data-act="pdel">Eliminar fila</button>
+   <button class="btn sm" data-act="pup" title="Sube la fila un lugar; al llegar al borde de un grupo sale de él o entra al grupo de arriba">▲ Subir</button><button class="btn sm" data-act="pdown" title="Baja la fila un lugar; entra a un grupo abierto o sale del suyo">▼ Bajar</button><button class="btn sm" data-act="pins" title="Agrega una actividad nueva debajo de la fila seleccionada">+ Fila debajo</button><button class="btn sm" data-act="pinsmenu" title="Insertar arriba o abajo de la fila seleccionada: actividad, subtarea o de mayor jerarquía">＋ Insertar ▾</button><button class="btn sm dng" data-act="pdel">Eliminar fila</button>
    <span class="sp"></span><button class="btn sm" data-act="ppaste">Pegar filas de Excel</button></div>
-   <div class="sm mut" style="margin:4px 2px 8px">Escribe directo en la tabla, como en MS Project: <b>Enter</b> baja a la fila siguiente, <b>Tab</b> pasa a la celda de al lado y la última fila vacía crea actividades nuevas. En <b>Pred.</b> y <b>Suc.</b> escribe el N° de fila con el tipo de liga: <b>3</b> = fin a comienzo (FS), <b>5SS+2</b> = comienzo a comienzo con 2 días de retraso, <b>7FF</b> = fin a fin, <b>9SF-1</b> = comienzo a fin; las fechas se acomodan solas. En <b>Real</b> marca el avance a la fecha de corte: se reparte en el tiempo desde el inicio programado de la actividad y alimenta solo el real acumulado de la Curva S y los cortes.</div>`}
+   <div class="sm mut" style="margin:4px 2px 8px">Escribe directo en la tabla, como en MS Project: <b>Enter</b> baja a la fila siguiente, <b>Tab</b> pasa a la celda de al lado y la última fila vacía crea actividades nuevas. En <b>Pred.</b> y <b>Suc.</b> escribe el N° de fila con el tipo de liga: <b>3</b> = fin a comienzo (FS), <b>5SS+2</b> = comienzo a comienzo con 2 días de retraso, <b>7FF</b> = fin a fin, <b>9SF-1</b> = comienzo a fin; las fechas se acomodan solas. Los <b>grupos</b> suman solos las fechas y los días de sus subtareas, como en MS Project. <b>▲ ▼</b> mueven la fila (incluso a otro grupo) y <b>＋ Insertar</b> agrega una actividad, subtarea o fila de mayor jerarquía arriba o abajo de cualquier fila sin mover el resto (también con clic derecho sobre el N°). En <b>Real</b> marca el avance a la fecha de corte: se reparte en el tiempo desde el inicio programado de la actividad y alimenta solo el real acumulado de la Curva S y los cortes.</div>`}
 function viewPrograma(){
-  const P=PR();if(!P.tasks.length)return emptyProgram();
+  const P=PR();if(!P.tasks.length)return emptyProgram();fixSummaries(P);
   return progToolbar()+`<div class="gwrap"><div id="gscroll">${ganttHTML(P,CALC())}</div></div>
   <div class="legend" style="margin-top:8px"><span><i style="background:var(--ok)"></i>Terminada</span><span><i style="background:var(--prog)"></i>En proceso</span><span><i style="background:var(--late)"></i>Atrasada</span><span><i style="background:var(--pend)"></i>Pendiente</span><span><i style="background:var(--steel);height:3px"></i>Línea base</span><span class="mut">Bloque oscuro dentro de la barra = avance real</span></div>`}
 function visibleRows(P,C){
@@ -1087,7 +1116,7 @@ function drawerHTML(P,i){
   const ins=projInsps().filter(x=>x.tid===t.i).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')||(b.creado||0)-(a.creado||0));
   const map=r.cs?r.cs.map:{};
   const tplOpts=`<option value="">— Sin checklist (avance manual) —</option>`+tplOptGroups(P,(!t.cl&&t.tp)||'');
-  const sched=sum?`<div class="fg"><label>Inicio<input type="text" value="${fmtN(dn(t.s))}" disabled></label><label>Fin<input type="text" value="${fmtN(dn(t.f))}" disabled></label><div class="full sm mut">Las fechas de un grupo se ajustan solas a las de sus actividades.</div></div>`
+  const sched=sum?`<div class="fg"><label>Inicio<input type="text" value="${fmtN(dn(t.s))}" disabled></label><label>Fin<input type="text" value="${fmtN(dn(t.f))}" disabled></label><label>Duración (días laborables)<input type="text" value="${Math.round(t.d)}" disabled></label><div class="full sm mut">Las fechas y los días de un grupo se calculan solos con los de sus subtareas (como en MS Project): liga las subtareas y el grupo se alarga o se acorta.</div></div>`
    :`<div class="fg"><label>Inicio<input type="date" value="${t.s}" data-tf="s" ${ro}></label><label>${t.ms?'Fecha del hito':'Duración (días laborables)'}<input type="number" min="0" step="1" value="${nz(t.d)}" data-tf="d" ${ro}></label><label>Fin<input type="date" value="${t.f}" data-tf="f" ${ro} ${t.ms?'disabled':''}></label><label>Responsable<input type="text" value="${esc(t.r||'')}" data-tf="r" placeholder="Contratista o cuadrilla" ${ro}></label><label class="full">Predecesoras (N° de fila)<input type="text" value="${esc(predDisp(T,t.p))}" data-tf="p" placeholder="Ej. 3, 5SS+2" ${ro}></label><div class="full sm mut">Línea base: ${fmtN(dn(t.bs))} – ${fmtN(dn(t.bf))} ${t.bs!==t.s||t.bf!==t.f?'<button class="btn sm w" data-act="tbase" style="margin-left:6px">Igualar a fechas actuales</button>':''}</div></div>`;
   const prog=`<div class="fg"><div><div class="sm mut">Real</div><div class="b" style="font-size:22px">${pc(r.pc)}</div></div><div><div class="sm mut">Programado a ${fmtN(S.asOf)}</div><div class="b" style="font-size:22px">${pc(r.pb)}</div></div></div>`;
   const cl=sum?'':t.ms?`<label class="f" style="display:flex;flex-direction:column;gap:3px;font-size:12px">Hito cumplido el<input type="date" value="${t.hc||''}" data-tf="hc" ${ro}></label><div class="sm mut" style="margin-top:6px">Déjalo vacío si aún no se cumple.</div>`
@@ -1100,7 +1129,7 @@ function drawerHTML(P,i){
   <div class="ds"><h4>Datos</h4><div class="fg"><label class="full">Nombre<input type="text" value="${esc(t.n.trim())}" data-tf="n" ${ro}></label></div></div>
   <div class="ds"><h4>Tiempos</h4>${sched}</div>
   ${sum?`<div class="ds"><h4>Avance del grupo</h4>${prog}</div>`:`<div class="ds"><h4>Avance</h4>${prog}</div><div class="ds"><h4>${t.ms?'Hito':'Liberación por checklist'}</h4>${cl}</div>`}
-  <div class="ds pw"><h4>Estructura</h4><div class="wl"><button class="btn sm" data-act="tlvl" data-v="-1" title="Subir de nivel">◀ Nivel</button><button class="btn sm" data-act="tlvl" data-v="1" title="Bajar de nivel">Nivel ▶</button><button class="btn sm" data-act="taddbelow">+ Actividad debajo</button><label class="wl sm"><input type="checkbox" data-tf="x" ${t.x?'checked':''}> Excluir del avance físico</label></div>
+  <div class="ds pw"><h4>Estructura</h4><div class="wl"><button class="btn sm" data-act="tlvl" data-v="-1" title="Subir de nivel">◀ Nivel</button><button class="btn sm" data-act="tlvl" data-v="1" title="Bajar de nivel">Nivel ▶</button><button class="btn sm" data-act="tup" title="Subir la fila un lugar">▲ Subir</button><button class="btn sm" data-act="tdown" title="Bajar la fila un lugar">▼ Bajar</button><button class="btn sm" data-act="tinsmenu" title="Insertar arriba o abajo de esta fila: actividad, subtarea o de mayor jerarquía">＋ Insertar ▾</button><label class="wl sm"><input type="checkbox" data-tf="x" ${t.x?'checked':''}> Excluir del avance físico</label></div>
    <div class="f" style="margin-top:10px"><label>Notas<textarea rows="2" data-tf="o">${esc(t.o||'')}</textarea></label></div>
    <div class="pw" style="margin-top:12px"><button class="btn dng sm" data-act="tdel">Eliminar ${sum?'grupo y sus actividades':'actividad'}</button></div></div>`}
 
@@ -1492,6 +1521,10 @@ function doShift(){const P=PR(),d=shiftDelta();if(!d){closeModal();return}
   saveProg();closeModal();render();toast('Programa recorrido '+d+' días.')}
 
 /* ---- edición de actividades ---- */
+/* acomoda los grupos (fechas y días de sus subtareas) y, con «Mover sucesoras», empuja a las actividades ligadas a un grupo cuyo fin cambió */
+function settle(P){let moved=[];
+  for(let g=0;g<4;g++){const sc=fixSummaries(P);if(!sc.length||!S.ui.casc)break;const m=cascadeFrom(P,sc);moved=moved.concat(m);if(!m.length)break}
+  return[...new Set(moved)]}
 function normalizeTasks(P){const T=P.tasks;fixLevels(T);const{par,kids}=buildTree(T);
   T.forEach((t,i)=>{if(kids[i].length){t.ms=0;return}t.ms=t.d>0?0:1;if(!t.ms&&!t.tp&&!(t.cl&&t.cl.length))t.tp=matchTplCtx(T,i,par)})}
 const _sm={k:'',m:null};
@@ -1539,35 +1572,74 @@ function editTask(id,k,v){
    case'pm':t.pm=Math.min(100,Math.max(0,parseFloat(v)||0));break;
    case'tp':t.tp=v||'';t.cl=null;break;
    case'pr':markReal(t,v);break;
-   case'sc':{const r=setSuccessors(P,t,v);if(r.err){toast(r.err,'err');render();return}fixSummaries(P);if(r.moved.length)toast('Se acomodaron '+r.moved.length+' actividades sucesoras.');break}
+   case'sc':{const r=setSuccessors(P,t,v);if(r.err){toast(r.err,'err');render();return}const m2=settle(P),mv=[...new Set(r.moved.concat(m2))];if(mv.length)toast('Se acomodaron '+mv.length+' actividades sucesoras.');break}
    case'p':{const r=predParse(P.tasks,v,t.i);if(r.err){toast(r.err,'err');render();return}t.p=r.p;time='links';break}
    case's':{const x=dn(v);if(x==null)return;t.s=sd(x);t.f=sd(t.ms?x:finishFrom(x,t.d,cal));time=true;break}
    case'd':{const d=Math.max(0,parseFloat(String(v).replace(',','.'))||0);const s=dn(t.s);t.d=d;t.f=sd(d>0?finishFrom(s,d,cal):s);t.ms=d>0?0:1;if(d>0&&!t.tp&&!(t.cl&&t.cl.length))t.tp=matchTpl(t.n);time=true;break}
    case'f':{const x=dn(v),s=dn(t.s);if(x==null)return;if(x<s){toast('El fin no puede ser anterior al inicio.','err');render();return}t.f=sd(x);t.d=Math.max(1,workBetween(s,x,cal));time=true;break}}
   if(time){
     if(S.ui.casc){const ch=time==='links'?enforceTask(P,id):[{i:id,os,of}];if(ch.length)moved=cascadeFrom(P,ch)}
-    fixSummaries(P);if(moved.length)toast('Se movieron '+moved.length+' actividades sucesoras.')}
+    moved=[...new Set(moved.concat(settle(P)))];if(moved.length)toast('Se movieron '+moved.length+' actividades sucesoras.')}
   saveProg();render()}
 function taskLevel(id,dv){
   const P=PR(),T=P.tasks,i=T.findIndex(t=>t.i===id);if(i<0)return;const end=subtreeEnd(T,i);
   if(dv>0){if(i===0||T[i].l>T[i-1].l){toast('No se puede bajar de nivel: ya cuelga de la actividad anterior.','err');return}for(let j=i;j<end;j++)T[j].l++}
   else{if(T[i].l===0)return;for(let j=i;j<end;j++)T[j].l--}
-  normalizeTasks(P);fixSummaries(P);saveProg();render()}
-function addTaskBelow(id,opt){
-  opt=opt||{};const P=PR(),T=P.tasks,cal=mkCal(P.cfg);const i=id?T.findIndex(t=>t.i===id):-1;
-  const at=i>=0?subtreeEnd(T,i):T.length,l=i>=0?T[i].l:(T.length?T[T.length-1].l:0);
-  const prev=i>=0?T[i]:T[T.length-1],pf=prev&&!(T[T.indexOf(prev)+1]&&T[T.indexOf(prev)+1].l>prev.l)?dn(prev.f):null;
-  const s0=nextW(pf!=null?Math.max(pf+1,1):S.asOf,cal),d=opt.d!=null?opt.d:5,f=finishFrom(s0,d,cal);
-  const t={i:newTid(T),n:opt.name||'Nueva actividad',l,d,s:sd(s0),f:sd(f),p:'',bs:sd(s0),bf:sd(f),x:0,ms:d>0?0:1,tp:'G'};
-  T.splice(at,0,t);normalizeTasks(P);fixSummaries(P);saveProg();S.tab='programa';
-  if(opt.quiet){S.sel=t.i;S.fn={id:t.i,ed:opt.focus||'d'}}else S.drawer=t.i;render();return t}
+  normalizeTasks(P);settle(P);saveProg();render()}
+/* Inserta una fila nueva en cualquier parte del programa sin mover las demás: la nueva queda sin ligas y las existentes
+   siguen ligadas por ID (solo cambian los N° de fila que se muestran).
+   pos: 'above' | 'below'.  kind: 'same' (mismo nivel que la de referencia), 'sub' (subtarea dentro de ella) o 'up' (de mayor
+   jerarquía: hermana del grupo al que pertenece la fila, antes o después de ese grupo). */
+function insertTask(refId,pos,kind,opt){
+  opt=opt||{};const P=PR(),T=P.tasks,cal=mkCal(P.cfg),k=refId?T.findIndex(t=>t.i===refId):-1;
+  if(refId&&k<0)return null;
+  const{par,kids}=buildTree(T);let at,lv,s0,nm=opt.name,lift=null;const d=opt.d!=null?opt.d:1;
+  if(k<0){at=T.length;lv=T.length?T[T.length-1].l:0;const pf=T.length?dn(T[T.length-1].f):null;s0=pf!=null?pf+1:S.asOf;nm=nm||'Nueva actividad'}
+  else{const ref=T[k],end=subtreeEnd(T,k),rs=dn(ref.s),rf=dn(ref.f);
+    if(kind==='sub'){lv=ref.l+1;at=end;nm=nm||'Nueva subtarea';if(kids[k].length)s0=rf!=null?rf+1:null;else{lift=ref;s0=rs}}
+    else if(kind==='up'){if(ref.l===0){toast('Esta fila ya es del nivel más alto.','err');return null}
+      const g=par[k];lv=T[g].l;at=pos==='above'?g:subtreeEnd(T,g);nm=nm||'Nuevo grupo';s0=pos==='above'?dn(T[g].s):(dn(T[g].f)!=null?dn(T[g].f)+1:null)}
+    else{lv=ref.l;at=pos==='above'?k:end;nm=nm||'Nueva actividad';s0=pos==='above'?rs:(rf!=null?rf+1:null)}}
+  s0=nextW(s0!=null?s0:S.asOf,cal);
+  const t={i:newTid(T),n:nm,l:lv,d,s:sd(s0),f:sd(d>0?finishFrom(s0,d,cal):s0),p:'',bs:'',bf:'',x:0,ms:d>0?0:1,tp:'G'};t.bs=t.s;t.bf=t.f;
+  if(lift){ // la actividad pasa a ser grupo: su programa (fechas, duración y ligas) pasa a la subtarea nueva para que nada se mueva
+    for(const f of['s','f','d','bs','bf','p','ms'])if(lift[f]!==undefined)t[f]=lift[f];if(!t.bs||!t.bf){t.bs=t.s;t.bf=t.f}
+    lift.p='';toast('«'+lift.n.trim()+'» ahora es un grupo: sus fechas y duración se calculan con sus subtareas.')}
+  T.splice(at,0,t);normalizeTasks(P);settle(P);
+  // que se vea la fila nueva: abre los grupos que la contienen y quita filtros
+  {const ix=T.indexOf(t),pp=buildTree(T).par;for(let a=pp[ix];a>=0;a=pp[a])delete S.ui.collapsed[P.id+':'+T[a].i];
+   S.ui.q='';S.ui.fst='';if(S.ui.nivel<t.l+1)S.ui.nivel=t.l+1}
+  saveProg();S.tab='programa';
+  if(opt.quiet){S.sel=t.i;S.fn={id:t.i,ed:opt.focus||'n'}}else S.drawer=t.i;render();return t}
+function addTaskBelow(id,opt){opt=opt||{};const T=PR().tasks;return insertTask(id&&T.some(t=>t.i===id)?id:null,'below','same',opt)}
+/* Mueve la fila (con sus subtareas) una posición hacia arriba o abajo, como se ve en pantalla: cruza grupos (entra a un grupo abierto
+   o sale de él) y cambia de nivel solo lo necesario para que el programa siga siendo válido. Los grupos contraídos se saltan completos. */
 function moveBlock(id,dir){
-  const P=PR(),T=P.tasks,i=T.findIndex(t=>t.i===id);if(i<0)return;const end=subtreeEnd(T,i),L=T[i].l;
-  if(dir<0){let j=i-1;while(j>=0&&T[j].l>L)j--;if(j<0||T[j].l<L){toast('No se puede subir más dentro de su grupo.','err');return}
-    const blk=T.splice(i,end-i);T.splice(j,0,...blk)}
-  else{if(end>=T.length||T[end].l<L){toast('No se puede bajar más dentro de su grupo.','err');return}
-    const e2=subtreeEnd(T,end),nxt=T.splice(end,e2-end);T.splice(i,0,...nxt)}
-  normalizeTasks(P);fixSummaries(P);saveProg();render()}
+  const P=PR(),T=P.tasks,i=T.findIndex(t=>t.i===id);if(i<0)return;
+  const end=subtreeEnd(T,i),L=T[i].l,blk=T.slice(i,end),rest=T.slice(0,i).concat(T.slice(end));
+  const col=t=>!!S.ui.collapsed[P.id+':'+t.i],hasK=(a,x)=>x+1<a.length&&a[x+1].l>a[x].l;
+  const par0=buildTree(T).par,anc=new Set();for(let a=par0[i];a>=0;a=par0[a])anc.add(T[a].i);
+  let k,Lt;const gb=blk.length>1; // gb: la fila lleva subtareas; los grupos se reordenan como bloque (para meterlos a otro grupo usa «Nivel ▶»)
+  if(dir<0){
+    if(i===0){toast('Ya es la primera fila.','err');return}
+    const pr=buildTree(rest).par;let r=i-1;
+    if(gb){let j=i-1;while(j>=0&&rest[j].l>L)j--;if(j>=0&&rest[j].l===L)r=j} // un grupo salta completo sobre su hermano anterior (no entra a él)
+    else for(let a=pr[r];a>=0;a=pr[a])if(col(rest[a])&&!anc.has(rest[a].i))r=a; // vecino visible
+    k=r;Lt=rest[r].l}
+  else{
+    if(i>=rest.length){toast('Ya es la última fila.','err');return}
+    if(!gb&&hasK(rest,i)&&!col(rest[i])){k=i+1;Lt=rest[i].l+1}else{k=subtreeEnd(rest,i);Lt=rest[i].l}}
+  const dl=Lt-L,blk2=blk.map(t=>Object.assign({},t,{l:t.l+dl})),cand=rest.slice(0,k).concat(blk2,rest.slice(k));
+  // no debe crear ciclos: una actividad no puede quedar dentro de un grupo del que ya depende
+  for(const q of blk2){if(cand.some((x,ix)=>x.i===q.i&&ix+1<cand.length&&cand[ix+1].l>x.l))continue;
+    for(const l of parsePred(q.p))if(cand.some(x=>x.i===l.id)&&dependsOn(cand,l.id,q.i)){
+      const g=cand.find(x=>x.i===l.id);toast('No se puede mover ahí: se crearía un ciclo entre «'+q.n.trim()+'» y «'+g.n.trim()+'» (una actividad no puede depender del grupo que la contiene).','err');return}}
+  const oldP=par0[i]>=0?T[par0[i]].i:null;
+  blk.forEach(t=>{t.l+=dl});T.splice(0,T.length,...rest.slice(0,k).concat(blk,rest.slice(k)));
+  normalizeTasks(P);settle(P);
+  const ni=T.findIndex(t=>t.i===id),pp=buildTree(T).par[ni],newP=pp>=0?T[pp].i:null;
+  if(newP!==oldP)toast('«'+T[ni].n.trim()+'» quedó '+(newP?'dentro de «'+T[pp].n.trim()+'»':'fuera de grupos (nivel 1)')+'.');
+  saveProg();S.fn={id,ed:'_'};render()}
 function askDelTask(id){const P=PR(),T=P.tasks,i=T.findIndex(t=>t.i===id);if(i<0)return;const t=T[i],n=subtreeEnd(T,i)-i;
   const ni=S.insps.filter(x=>x.pid===P.id&&T.slice(i,i+n).some(q=>q.i===x.tid)).length;
   confirmBox('Eliminar '+(n>1?'grupo':'fila'),`Se eliminará «${esc(t.n.trim())}»${n>1?' junto con sus '+(n-1)+' actividades':''}${ni?' y sus '+ni+' inspecciones':''}.`,'Eliminar',()=>{delTask(t.i);if(S.sel===t.i)S.sel=null},true)}
@@ -1587,18 +1659,18 @@ function pasteRows(text){
     let s0=x.s?parseDateCell(x.s,'dmy'):null;if(s0==null)s0=nextW(cur!=null?cur+1:S.asOf,cal);else s0=nextW(s0,cal);
     const f0=finishFrom(s0,d,cal);cur=f0;
     return{i:newTid(T,used),n:x.n,l:Math.max(0,base+Math.floor((x.lead-minLead)/2)),d,s:sd(s0),f:sd(f0),p:'',bs:sd(s0),bf:sd(f0),x:0,ms:d>0?0:1,tp:'G',_p:x.p}});
-  T.splice(at,0,...add);normalizeTasks(P);fixSummaries(P);
+  T.splice(at,0,...add);normalizeTasks(P);settle(P);
   let bad=0;const ch=[];
   add.forEach(t=>{if(!t._p){delete t._p;return}const r=predParse(T,t._p,t.i);delete t._p;if(r.err){bad++;return}t.p=r.p});
   if(S.ui.casc)add.forEach(t=>{if(t.p){const c=enforceTask(P,t.i);if(c.length)ch.push(...c)}});
   if(ch.length)cascadeFrom(P,ch);
-  fixSummaries(P);saveProg();closeModal();S.tab='programa';render();
+  settle(P);saveProg();closeModal();S.tab='programa';render();
   toast('Se agregaron '+add.length+' filas'+(bad?' ('+bad+' con predecesoras no válidas: revísalas)':'')+'.',bad?'err':'')}
 function delTask(id){
   const P=PR(),T=P.tasks,i=T.findIndex(t=>t.i===id);if(i<0)return;const end=subtreeEnd(T,i),ids=T.slice(i,end).map(t=>t.i);
   const ins=S.insps.filter(x=>x.pid===P.id&&ids.includes(x.tid));
   S.insps=S.insps.filter(x=>!ins.includes(x));ins.forEach(x=>dbDel('inspecciones',x.id));
-  T.splice(i,end-i);normalizeTasks(P);fixSummaries(P);S.drawer=null;saveProg();closeModal();render();toast('Eliminadas '+ids.length+' actividades.')}
+  T.splice(i,end-i);normalizeTasks(P);settle(P);S.drawer=null;saveProg();closeModal();render();toast('Eliminadas '+ids.length+' actividades.')}
 function reassign(mode){
   const P=PR(),T=P.tasks,{par,kids}=buildTree(T);let n=0;
   T.forEach((t,i)=>{if(kids[i].length||t.ms)return;if(mode==='empty'&&(t.tp||(t.cl&&t.cl.length)))return;if(t.cl&&t.cl.length&&mode!=='all')return;t.tp=matchTplCtx(T,i,par);if(mode==='all')t.cl=null;n++});
@@ -1612,8 +1684,31 @@ function setMetaField(k,v){const p=clone(curMeta());
 const selTpl=p=>{const L=tplEff(p).list;return L.find(t=>t.id===S.ui.tplSel)||L[0]||null};
 const selTplOwn=p=>{const t=selTpl(p);return t?ownTpl(p,t.id):null};
 /* ---- eventos: clic ---- */
-const PROG_ACTS=new Set(['newproj','import','gedit','addtask','taddbelow','shift','shiftok','baseline','tbase','tlvl','tdel','corte','corteok','delcorte','editcl','cledel','cleadd','clereset','clesave','reassign','tpladd','tpladdok','tpldel','tiadd','tidel','delproj','delprojok','pickfile','imptxt','impempty','impok','prow','pup','pdown','pins','plink','punlink','pdel','pind','pout','ppaste','ppasteok','crealclear','cexp-pdf','cutdia','pesoreset']);
+let INSREF=null,INSFROM='bar',INSAT=0;
+function closeInsMenu(){const m=$('#insmenu');if(m)m.remove();INSREF=null}
+function openInsMenu(id,x,y,from){
+  const P=PR(),T=P.tasks,k=T.findIndex(t=>t.i===id);if(k<0)return;closeInsMenu();INSREF=id;INSFROM=from||'bar';
+  const g=buildTree(T).par[k],nm=n=>esc(String(n).trim().slice(0,30)),hi=g>=0,r=T[k];
+  const it=(pos,kind,txt,sub,dis)=>`<button type="button" role="menuitem" data-act="ins" data-pos="${pos}" data-kind="${kind}"${dis?' disabled':''}>${txt}<small>${sub}</small></button>`;
+  const m=document.createElement('div');m.id='insmenu';m.className='insmenu';m.setAttribute('role','menu');
+  m.innerHTML=`<div class="imh">Fila ${k+1} · ${nm(r.n)}</div>`
+   +it('above','same','▲ Actividad arriba','mismo nivel que esta fila')
+   +it('below','same','▼ Actividad abajo','mismo nivel que esta fila')
+   +it('below','sub','↳ Subtarea','dentro de esta fila'+(buildTree(T).kids[k].length?' (al final del grupo)':' (la fila pasa a ser grupo)'))
+   +'<hr>'
+   +it('above','up','⤒ Mayor jerarquía, arriba',hi?'antes de «'+nm(T[g].n)+'»':'esta fila ya es del nivel más alto',!hi)
+   +it('below','up','⤓ Mayor jerarquía, abajo',hi?'después de «'+nm(T[g].n)+'»':'esta fila ya es del nivel más alto',!hi);
+  document.body.appendChild(m);
+  const w=m.offsetWidth,h=m.offsetHeight;m.style.left=Math.max(8,Math.min(x,innerWidth-w-8))+'px';m.style.top=Math.max(8,Math.min(y,innerHeight-h-8))+'px';
+  INSAT=Date.now();const b=m.querySelector('button:not(:disabled)');if(b)b.focus({preventScroll:true})}
+document.addEventListener('scroll',ev=>{if(INSREF&&Date.now()-INSAT>400&&!(ev.target.closest&&ev.target.closest('#insmenu')))closeInsMenu()},true);
+document.addEventListener('contextmenu',ev=>{
+  if(!(S.ui.edit&&S.canProg&&S.tab==='programa'))return;const t=ev.target;
+  if(!t||!t.closest||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))return;const row=t.closest('.grow[data-row]');if(!row)return;
+  ev.preventDefault();const id=row.dataset.row;if(S.sel!==id){S.sel=id;render()}openInsMenu(id,ev.clientX,ev.clientY,'bar')});
+const PROG_ACTS=new Set(['ins','pinsmenu','tinsmenu','tup','tdown','newproj','import','gedit','addtask','taddbelow','shift','shiftok','baseline','tbase','tlvl','tdel','corte','corteok','delcorte','editcl','cledel','cleadd','clereset','clesave','reassign','tpladd','tpladdok','tpldel','tiadd','tidel','delproj','delprojok','pickfile','imptxt','impempty','impok','prow','pup','pdown','pins','plink','punlink','pdel','pind','pout','ppaste','ppasteok','crealclear','cexp-pdf','cutdia','pesoreset']);
 document.addEventListener('click',async ev=>{
+  if(INSREF&&!ev.target.closest('#insmenu')){closeInsMenu();if(ev.target.closest('[data-act="pinsmenu"],[data-act="tinsmenu"]'))return}
   const el=ev.target.closest('[data-act]');
   if(!el){if(ev.target.id==='modal')closeModal();return}
   if(/^(SELECT|INPUT|TEXTAREA)$/.test(el.tagName)&&el.type!=='button')return;
@@ -1640,6 +1735,11 @@ document.addEventListener('click',async ev=>{
    case'pup':if(selIdx()>=0)moveBlock(S.sel,-1);else toast('Selecciona primero una fila (toca su N°).','err');break;
    case'pdown':if(selIdx()>=0)moveBlock(S.sel,1);else toast('Selecciona primero una fila (toca su N°).','err');break;
    case'pins':addTaskBelow(selIdx()>=0?S.sel:null,{quiet:true,focus:'n',name:'Nueva actividad'});break;
+   case'pinsmenu':{if(selIdx()<0){toast('Selecciona primero una fila (toca su N°).','err');break}const b=el.getBoundingClientRect();openInsMenu(S.sel,b.left,b.bottom+4,'bar');break}
+   case'tinsmenu':{const b=el.getBoundingClientRect();openInsMenu(S.drawer,b.left,b.bottom+4,'drawer');break}
+   case'ins':{const ref=INSREF,from=INSFROM;closeInsMenu();if(ref)insertTask(ref,el.dataset.pos,el.dataset.kind,from==='drawer'?{}:{quiet:true,focus:'n'});break}
+   case'tup':moveBlock(S.drawer,-1);break;
+   case'tdown':moveBlock(S.drawer,1);break;
    case'pdel':if(selIdx()>=0)askDelTask(S.sel);else toast('Selecciona primero una fila (toca su N°).','err');break;
    case'ppaste':openPaste();break;
    case'ppasteok':pasteRows(($('#ptxt')||{}).value||'');break;
@@ -1775,7 +1875,7 @@ document.addEventListener('pointerup',ev=>{
   const days=Math.round((ev.clientX-d.x0)/d.dw);if(!days){refreshGantt();return}
   const P=PR(),t=P.tasks.find(x=>x.i===d.id);if(!t)return;
   if(d.kind==='move')editTask(d.id,'s',sd(nextW(dn(t.s)+days,mkCal(P.cfg))));else editTask(d.id,'f',sd(dn(t.f)+days))});
-document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){if($('#modal').classList.contains('open'))closeModal();else if(S.drawer){S.drawer=null;render()}}});
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){if(INSREF){closeInsMenu();return}if($('#modal').classList.contains('open'))closeModal();else if(S.drawer){S.drawer=null;render()}}});
 
 /* ================= ARRANQUE · Firebase (versión independiente) ================= */
 /* 1) Configuración del proyecto de Firebase
